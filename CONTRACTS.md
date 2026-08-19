@@ -21,7 +21,7 @@ file.
   8226, binds 127.0.0.1 ONLY), `RESOLVE_RNS_CONFIG` (default `/config`),
   `RESOLVE_PEERS` (comma-separated peer resolver dest hashes, default empty
   = replication off), `BEACON_DB_HOST/PORT/NAME/USER/PASSWORD` (optional;
-  absent or unreachable → announce candidates degrade to empty, service
+  absent or unreachable -> announce candidates degrade to empty, service
   stays up).
 - NEVER hardcode internal IPs anywhere in this repo. Backends come from env.
 - No em dashes in any file (house style). ASCII quotes in code.
@@ -134,25 +134,25 @@ psycopg2 GOTCHA: no literal `%` in SQL text (use %% or avoid).
 - Request handler receives msgpack payload, returns msgpack reply.
   Ops (envelope `{"v":1, "op": ...}` except `__manifest__` which is
   version-tolerant and checked FIRST):
-  - `{"op":"__manifest__"}` → `{"ok":True,"manifest":MANIFEST}` where
+  - `{"op":"__manifest__"}` -> `{"ok":True,"manifest":MANIFEST}` where
     MANIFEST follows the MeshAPI 0.1 shape:
     `{"meshapi":"0.1","service":{"name":"rns-resolve","summary":...,
     "app":"rnsresolve","aspect":"query","path":"q","dest":<hex>,
     "encoding":"umsgpack","source":"https://github.com/wdunn001/rns-resolve"},
     "ops":[...]}` with request field types in the MeshAPI type
     mini-language (`str!`, `int?` etc).
-  - `{"v":1,"op":"resolve","q":str,"limit":int?}` → normalize q; reply
+  - `{"v":1,"op":"resolve","q":str,"limit":int?}` -> normalize q; reply
     `{"ok":True,"q":q_norm,"registered":[record_public...],
     "announced":[candidate...]}`. record_public = record minus sig, plus
     `{"id":record_id,"expires":ts+ttl}`. Also `touch_use` each returned
-    registered record. If q fails normalization → `{"ok":False,"err":...}`.
+    registered record. If q fails normalization -> `{"ok":False,"err":...}`.
   - `{"v":1,"op":"register","name":str,"app":str?,"aspects":list?,
     "ts":float,"ttl":int?,"sig":bytes}` REQUIRES an identified link
-    (`link.get_remote_identity()`; if None →
+    (`link.get_remote_identity()`; if None ->
     `{"ok":False,"err":"identify required"}`). Build rec with identity =
     remote identity hash hex; verify sig with the remote Identity; derive
     target; store; reply `{"ok":True,"record":record_public}`.
-  - `{"v":1,"op":"whois","hash":str}` → registered records for target +
+  - `{"v":1,"op":"whois","hash":str}` -> registered records for target +
     (if beacon available) the announce-name row for that hash.
   - Per-link rate limit: max 30 requests/min, then `{"ok":False,
     "err":"rate limited"}`.
@@ -160,10 +160,10 @@ psycopg2 GOTCHA: no literal `%` in SQL text (use %% or avoid).
   `{"status":"ok","rns_ready":bool,"records":int,"beacon_db":bool,
   "dest":<hex>}` HTTP 200 when rns_ready else 503.
 - Private HTTP (127.0.0.1:RESOLVE_PRIVATE_PORT), for colocated NomadNet
-  exec pages only: GET `/resolve?q=...&limit=` → same shape as resolve op
+  exec pages only: GET `/resolve?q=...&limit=` -> same shape as resolve op
   (JSON); POST `/register` JSON `{"name":..., "identity": hex32,
-  "app"?, "aspects"?}` → attested record (sig None, attested=1), reply
-  JSON like register op. POST `/unregister` JSON `{"name","identity"}` →
+  "app"?, "aspects"?}` -> attested record (sig None, attested=1), reply
+  JSON like register op. POST `/unregister` JSON `{"name","identity"}` ->
   deletes matching records owned by that identity.
 - Startup: Store, BeaconSource, optional peers (peers.start_scheduler(...)
   only if RESOLVE_PEERS non-empty), expire_sweep hourly in the announce
@@ -177,11 +177,11 @@ CLI: `python -m rns_resolve <query> [--resolver HEX32] [--config DIR]
 [--ttl SECONDS] [--pin N] [--repin] [--json] [--timeout SECS]`
 
 Flow for `<query>`:
-1. If HASH_RE matches → print it back with kind "hash" and exit 0 (never
+1. If HASH_RE matches -> print it back with kind "hash" and exit 0 (never
    query the resolver; this is the trust invariant).
-2. petnames.get(normalized) hit → print pinned hash, kind "petname". Done,
+2. petnames.get(normalized) hit -> print pinned hash, kind "petname". Done,
    zero network.
-3. Miss → require `--resolver` (or env `RESOLVE_RESOLVER`); RNS init with
+3. Miss -> require `--resolver` (or env `RESOLVE_RESOLVER`); RNS init with
    `--rns-config` dir; `RNS.Transport.request_path` + wait for the
    RESOLVER's real dest (that is a legitimate hash lookup); open Link;
    send `resolve` op via `link.request("q", msgpack_bytes)`; collect reply.
@@ -191,7 +191,7 @@ Flow for `<query>`:
    exactly one registered candidate and zero announced conflicts.
 6. TOFU: if the name is already pinned and a fresh resolve (forced by
    `--repin`-less explicit resolve when pinned names skip the network,
-   so only on `--repin`) returns a different hash → print a loud
+   so only on `--repin`) returns a different hash -> print a loud
    `NAME/HASH CHANGED` warning; require `--repin` to overwrite.
 
 `--register NAME`: identify on the link (client identity file at
@@ -212,17 +212,17 @@ class PetnameTable:
     def all(self) -> dict
 ```
 Atomic writes (tmp file + os.replace is fine here, plain file path).
-Corrupt/missing file → start empty, never crash.
+Corrupt/missing file -> start empty, never crash.
 
 ## peers.py (replication skeleton, LXMPeer-shaped)
 
 Offer/want over the same request path "q" using ops:
-- `{"v":1,"op":"sync.offer","ids":[...]}` → `{"ok":True,"want":[subset]}`
-- `{"v":1,"op":"sync.push","records":[rec_with_sig...]}` →
+- `{"v":1,"op":"sync.offer","ids":[...]}` -> `{"ok":True,"want":[subset]}`
+- `{"v":1,"op":"sync.push","records":[rec_with_sig...]}` ->
   `{"ok":True,"accepted":n,"rejected":n}`
 Acceptance rule: only self-certifying records (sig present); verify via
 `RNS.Identity.recall(bytes.fromhex(rec["identity"]))`; unrecallable
-identity → reject (count it). Re-derive target before storing (never trust
+identity -> reject (count it). Re-derive target before storing (never trust
 the pushed target field). attested records are never pushed.
 
 ```python
@@ -232,7 +232,7 @@ class PeerScheduler:
     def sync_peer(self, hash_hex) -> dict  # {"offered":n,"pushed":n,...}
     def stop(self): ...
 ```
-Backoff: unreachable peer → double interval up to 4h; reset on success.
+Backoff: unreachable peer -> double interval up to 4h; reset on success.
 Service wires the two sync ops into its handler by calling
 `peers.handle_sync(op, payload, store)` (pure function, returns reply dict
 or None if not a sync op).
