@@ -1,0 +1,23 @@
+[project]
+name = "rns-resolve"
+version = "0.1.0"
+description = "Human-readable name resolution for Reticulum: petnames, resolver-on-miss, identity-derived registration"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "wdunn001" }]
+requires-python = ">=3.11"
+dependencies = ["rns>=0.9"]
+
+[project.optional-dependencies]
+service = ["psycopg2-binary"]
+
+[project.scripts]
+rns-resolve = "rns_resolve.__main__:main"
+rns-resolved = "rns_resolve.service:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["rns_resolve"]

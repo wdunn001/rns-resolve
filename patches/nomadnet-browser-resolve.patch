@@ -1,0 +1,111 @@
+--- a/nomadnet/ui/textui/Browser.py
++++ b/nomadnet/ui/textui/Browser.py
+@@ -17,6 +17,50 @@
+ from .Helpers import ClickableIcon, osc52_copy
+ from .ReadlineEdit import ReadlineMixin, ReadlineEdit
+ 
++# Optional rns-resolve integration (https://github.com/wdunn001/rns-resolve).
++# Import is guarded: without the rns_resolve package installed, everything
++# below is inert and NomadNet behaves exactly as stock.
++try:
++    from rns_resolve.petnames import PetnameTable
++    from rns_resolve.records import normalize_name
++    RNS_RESOLVE_AVAILABLE = True
++except Exception:
++    RNS_RESOLVE_AVAILABLE = False
++
++def rns_resolve_url_fallback(name):
++    # Prototype fallback for human-readable names in browser URLs. Only
++    # ever called from branches where the input has already failed the
++    # destination-hash shape check, so a valid hash is never sent to a
++    # resolver (rns-resolve trust invariant). Checks the local petname
++    # table first (zero network), then queries a resolver only if the
++    # RNS_RESOLVE_RESOLVER environment variable is set. Returns a 32
++    # character hex destination hash string, or None to fall back to the
++    # original "Malformed URL" error.
++    if not RNS_RESOLVE_AVAILABLE:
++        return None
++    try:
++        query = normalize_name(name)
++    except Exception:
++        return None
++    try:
++        pinned = PetnameTable().get(query)
++        if pinned != None and pinned.get("hash"):
++            return pinned["hash"]
++    except Exception:
++        pass
++    resolver = os.environ.get("RNS_RESOLVE_RESOLVER", None)
++    if resolver:
++        try:
++            from rns_resolve import client as rns_resolve_client
++            resolve_fn = getattr(rns_resolve_client, "resolve_name", None)
++            if resolve_fn != None:
++                resolved = resolve_fn(query, resolver)
++                if resolved:
++                    return resolved
++        except Exception:
++            pass
++    return None
++
+ class BrowserFrame(urwid.Frame):
+     def keypress(self, size, key):
+         if key == "ctrl w":
+@@ -637,7 +681,12 @@
+                 try: destination_hash = bytes.fromhex(components[0])
+                 except Exception as e: raise ValueError("Malformed URL")
+                 path = Browser.DEFAULT_PATH
+-            else: raise ValueError("Malformed URL")
++            else:
++                resolved = rns_resolve_url_fallback(components[0])
++                if resolved != None:
++                    destination_hash = bytes.fromhex(resolved)
++                    path = Browser.DEFAULT_PATH
++                else: raise ValueError("Malformed URL")
+         elif len(components) == 2:
+             if len(components[0]) == (RNS.Reticulum.TRUNCATED_HASHLENGTH//8)*2:
+                 try: destination_hash = bytes.fromhex(components[0])
+@@ -651,7 +700,13 @@
+                         path = components[1]
+                         if len(path) == 0: path = Browser.DEFAULT_PATH
+                     else: raise ValueError("Malformed URL")
+-                else: raise ValueError("Malformed URL")
++                else:
++                    resolved = rns_resolve_url_fallback(components[0])
++                    if resolved != None:
++                        destination_hash = bytes.fromhex(resolved)
++                        path = components[1]
++                        if len(path) == 0: path = Browser.DEFAULT_PATH
++                    else: raise ValueError("Malformed URL")
+         else: raise ValueError("Malformed URL")
+ 
+         return destination_hash, path
+@@ -911,7 +966,12 @@
+                 try: destination_hash = bytes.fromhex(components[0])
+                 except Exception as e: raise ValueError("Malformed URL")
+                 path = Browser.DEFAULT_PATH
+-            else: raise ValueError("Malformed URL")
++            else:
++                resolved = rns_resolve_url_fallback(components[0])
++                if resolved != None:
++                    destination_hash = bytes.fromhex(resolved)
++                    path = Browser.DEFAULT_PATH
++                else: raise ValueError("Malformed URL")
+         elif len(components) == 2:
+             if len(components[0]) == (RNS.Reticulum.TRUNCATED_HASHLENGTH//8)*2:
+                 try: destination_hash = bytes.fromhex(components[0])
+@@ -925,7 +985,13 @@
+                         path = components[1]
+                         if len(path) == 0: path = Browser.DEFAULT_PATH
+                     else: raise ValueError("Malformed URL")
+-                else: raise ValueError("Malformed URL")
++                else:
++                    resolved = rns_resolve_url_fallback(components[0])
++                    if resolved != None:
++                        destination_hash = bytes.fromhex(resolved)
++                        path = components[1]
++                        if len(path) == 0: path = Browser.DEFAULT_PATH
++                    else: raise ValueError("Malformed URL")
+         else: raise ValueError("Malformed URL")
+ 
+         if destination_hash != None and path != None:

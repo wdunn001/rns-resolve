@@ -1,0 +1,19 @@
+# Minimal RNS config for the rns-resolve service container.
+# Rides the host's local rnsd hub as an ordinary client (additive; never a
+# transport node). The interface_enabled line is REQUIRED on every block:
+# RNS silently skips blocks without it.
+
+[reticulum]
+  enable_transport = False
+  share_instance = No
+  instance_name = rns_resolve
+
+[logging]
+  loglevel = 3
+
+[interfaces]
+  [[Local Hub]]
+    type = TCPClientInterface
+    interface_enabled = True
+    target_host = 127.0.0.1
+    target_port = 4343

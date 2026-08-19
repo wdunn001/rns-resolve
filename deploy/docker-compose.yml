@@ -1,0 +1,29 @@
+# rns-resolve stack: resolver service (+ optional NomadNet node for the
+# registration/lookup pages, wired at deploy from the sibling node pattern).
+# Additive-only: own identities, own volumes, own ports (8225 health,
+# 8226 loopback-only private API). Never touches the host rnsd or any
+# other stack.
+services:
+  rns-resolve:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: rns-resolve
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      RESOLVE_HEALTH_PORT: "8225"
+      RESOLVE_PRIVATE_PORT: "8226"
+      # BEACON_DB_* supplied via .env at deploy time (never committed)
+      BEACON_DB_HOST: ${BEACON_DB_HOST:-}
+      BEACON_DB_PORT: ${BEACON_DB_PORT:-5432}
+      BEACON_DB_NAME: ${BEACON_DB_NAME:-}
+      BEACON_DB_USER: ${BEACON_DB_USER:-}
+      BEACON_DB_PASSWORD: ${BEACON_DB_PASSWORD:-}
+    volumes:
+      - rns_resolve_config:/config
+      - rns_resolve_data:/data
+
+volumes:
+  rns_resolve_config:
+  rns_resolve_data:
