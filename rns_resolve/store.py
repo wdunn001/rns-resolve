@@ -179,6 +179,17 @@ class Store:
             ).fetchall()
         return [self._row_to_rec(r) for r in rows]
 
+    def owned(self, identity: str) -> list:
+        """Non-expired records registered by an identity, newest first.
+        Backs the registration page's owned-names listing."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM records WHERE identity=? AND ts + ttl > ?"
+                " ORDER BY ts DESC",
+                (identity.lower(), time.time()),
+            ).fetchall()
+        return [self._row_to_rec(r) for r in rows]
+
     def delete(self, name: str, identity: str) -> int:
         """Delete records matching name AND registrant identity. Returns count.
 

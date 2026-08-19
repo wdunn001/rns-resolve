@@ -315,3 +315,25 @@ class StoreTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OwnedTest(unittest.TestCase):
+    def test_owned_by_identity_excludes_expired_and_others(self):
+        import tempfile, time as _t
+        with tempfile.TemporaryDirectory() as tmp:
+            st = Store(os.path.join(tmp, "s.db"))
+            now = _t.time()
+            mine = {"v": 1, "name": "mine", "identity": "aa" * 16,
+                    "app": "nomadnetwork", "aspects": ["node"], "target": "cc" * 16,
+                    "ts": now, "ttl": 3600, "sig": b"s"}
+            old = {"v": 1, "name": "old", "identity": "aa" * 16,
+                   "app": "nomadnetwork", "aspects": ["node"], "target": "cc" * 16,
+                   "ts": now - 9999, "ttl": 3600, "sig": b"s"}
+            other = {"v": 1, "name": "other", "identity": "bb" * 16,
+                     "app": "nomadnetwork", "aspects": ["node"], "target": "dd" * 16,
+                     "ts": now, "ttl": 3600, "sig": b"s"}
+            for r in (mine, old, other):
+                st.put(r)
+            got = st.owned("AA" * 16)
+            st.close()
+            self.assertEqual([r["name"] for r in got], ["mine"])

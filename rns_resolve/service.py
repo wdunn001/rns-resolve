@@ -466,6 +466,22 @@ def private_unregister(body, deps):
             "removed": int(removed or 0)}
 
 
+def private_owned(identity, deps):
+    """GET /owned: non-expired records registered by an identity. Backs the
+    registration page's owned-names listing."""
+    records = _records()
+    if not isinstance(identity, str) or not records.HASH_RE.match(identity):
+        return _err("invalid identity")
+    owned_fn = getattr(deps.store, "owned", None)
+    if not callable(owned_fn):
+        return _err("owned unsupported")
+    try:
+        recs = owned_fn(identity.lower())
+    except Exception:
+        return _err("owned failed")
+    return {"ok": True, "records": [record_public(r, records) for r in recs]}
+
+
 # ---------------------------------------------------------------------------
 # HTTP servers (not unit tested)
 # ---------------------------------------------------------------------------
@@ -529,10 +545,18 @@ def _make_private_handler(svc):
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            if parsed.path == "/owned":
+                identity = (qs.get("identity") or [""])[0]
+                try:
+                    reply = private_owned(identity, svc.deps)
+                except Exception:
+                    reply = {"ok": False, "err": "internal error"}
+                self._send(200 if reply.get("ok") else 400, reply)
+                return
             if parsed.path != "/resolve":
                 self._send(404, {"ok": False, "err": "not found"})
                 return
-            qs = parse_qs(parsed.query)
             payload = {
                 "q": (qs.get("q") or [""])[0],
                 "limit": (qs.get("limit") or [DEFAULT_RESOLVE_LIMIT])[0],
