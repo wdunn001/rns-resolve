@@ -524,3 +524,65 @@ class RnsIdentityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResolveNameTest(unittest.TestCase):
+    """resolve_name: the NomadNet-patch embedding hook."""
+
+    def _pets(self, tmp):
+        from rns_resolve.petnames import PetnameTable
+        return PetnameTable(os.path.join(tmp, "pets.json"))
+
+    def test_pinned_short_circuits_without_network(self):
+        import tempfile
+        from rns_resolve import client
+        with tempfile.TemporaryDirectory() as tmp:
+            pets = self._pets(tmp)
+            pets.pin("home", "a" * 32, "test")
+            def boom(*a, **k):
+                raise AssertionError("network must not be touched")
+            orig = client.resolve_remote
+            client.resolve_remote = boom
+            try:
+                self.assertEqual(
+                    client.resolve_name("HOME", "b" * 32, petnames_table=pets),
+                    "a" * 32)
+            finally:
+                client.resolve_remote = orig
+
+    def test_registered_only_and_pins(self):
+        import tempfile
+        from rns_resolve import client
+        with tempfile.TemporaryDirectory() as tmp:
+            pets = self._pets(tmp)
+            orig = client.resolve_remote
+            client.resolve_remote = lambda *a, **k: {
+                "ok": True,
+                "registered": [{"target": "c" * 32}],
+                "announced": [{"hash": "d" * 32}]}
+            try:
+                got = client.resolve_name("shop", "b" * 32, petnames_table=pets)
+            finally:
+                client.resolve_remote = orig
+            self.assertEqual(got, "c" * 32)
+            self.assertEqual(pets.get("shop")["hash"], "c" * 32)
+
+    def test_announced_only_returns_none(self):
+        import tempfile
+        from rns_resolve import client
+        with tempfile.TemporaryDirectory() as tmp:
+            pets = self._pets(tmp)
+            orig = client.resolve_remote
+            client.resolve_remote = lambda *a, **k: {
+                "ok": True, "registered": [],
+                "announced": [{"hash": "d" * 32}]}
+            try:
+                got = client.resolve_name("shop", "b" * 32, petnames_table=pets)
+            finally:
+                client.resolve_remote = orig
+            self.assertIsNone(got)
+            self.assertIsNone(pets.get("shop"))
+
+    def test_never_raises(self):
+        from rns_resolve import client
+        self.assertIsNone(client.resolve_name("...bad!!name...", "b" * 32))

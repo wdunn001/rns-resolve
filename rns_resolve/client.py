@@ -217,6 +217,46 @@ def resolve_remote(resolver_hash, query, rns_config=None,
     return _remote_request(resolver_hash, payload, rns_config, timeout)
 
 
+def resolve_name(name, resolver_hash, rns_config=None,
+                 timeout=DEFAULT_TIMEOUT, petnames_table=None):
+    """One-shot embedding API: name in, single hash out (or None).
+
+    This is the hook the NomadNet browser patch calls. Deliberately
+    conservative: it returns ONLY a registered (ownership-derived) record's
+    target, never an announced candidate, because the caller has no UI to
+    present ranked candidates and an announce name is an unverified
+    self-claim. On success the answer is pinned into the local petname
+    table (TOFU), so subsequent lookups never touch the network. Never
+    raises; returns None on any failure so callers can fall back to their
+    stock behavior.
+    """
+    try:
+        from .records import normalize_name
+        from .petnames import PetnameTable
+        name_norm = normalize_name(name)
+        pets = petnames_table if petnames_table is not None else PetnameTable()
+        pinned = pets.get(name_norm)
+        if pinned and pinned.get("hash"):
+            return pinned["hash"]
+        reply = resolve_remote(resolver_hash, name_norm,
+                               rns_config=rns_config, timeout=timeout)
+        if not isinstance(reply, dict) or not reply.get("ok"):
+            return None
+        registered = reply.get("registered") or []
+        if not registered:
+            return None
+        target = registered[0].get("target")
+        if not target:
+            return None
+        try:
+            pets.pin(name_norm, target, "resolver:" + str(resolver_hash))
+        except Exception:
+            pass
+        return target
+    except Exception:
+        return None
+
+
 def _load_client_identity(config_dir):
     """Load or create the client identity at <config_dir>/client_identity."""
     import RNS
