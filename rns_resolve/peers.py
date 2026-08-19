@@ -50,6 +50,11 @@ def _derive_target(identity_hash_hex, app, aspects):
     return records.derive_target(identity_hash_hex, app, aspects)
 
 
+def _verify_standalone(rec):
+    from . import records
+    return records.verify_record_standalone(rec)
+
+
 def _recall_identity(identity_hash_hex):
     """Recall a known RNS Identity by its hash. None if unknown."""
     import RNS
@@ -103,11 +108,18 @@ def _accept_pushed_record(rec, store):
         identity_hex = rec.get("identity")
         if not isinstance(identity_hex, str):
             return False
-        identity = _recall_identity(identity_hex)
-        if identity is None:
-            return False
-        if not _verify_record(rec, identity):
-            return False
+        # Preferred path: the record carries its registrant's public key and
+        # verifies standalone (self-certifying; no prior knowledge needed).
+        # Fallback: an announce-known identity via RNS.Identity.recall.
+        if rec.get("pubkey"):
+            if not _verify_standalone(rec):
+                return False
+        else:
+            identity = _recall_identity(identity_hex)
+            if identity is None:
+                return False
+            if not _verify_record(rec, identity):
+                return False
         # Never trust the pushed target field; re-derive it.
         rec = dict(rec)
         rec["target"] = _derive_target(

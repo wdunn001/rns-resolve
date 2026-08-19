@@ -31,9 +31,16 @@ CREATE TABLE IF NOT EXISTS records (
     ttl       INTEGER,
     sig       BLOB,
     attested  INTEGER,
-    last_used REAL
+    last_used REAL,
+    pubkey    BLOB
 );
 """
+
+# Migration for databases created before the pubkey column existed.
+# ALTER ADD appends the column last, matching the CREATE order above.
+_MIGRATIONS = (
+    "ALTER TABLE records ADD COLUMN pubkey BLOB;",
+)
 
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_records_name ON records(name);",
@@ -65,6 +72,11 @@ class Store:
             self._conn.execute(_SCHEMA)
             for stmt in _INDEXES:
                 self._conn.execute(stmt)
+            for stmt in _MIGRATIONS:
+                try:
+                    self._conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass  # column already exists (fresh or migrated db)
 
     # -- write path ---------------------------------------------------------
 
@@ -89,14 +101,15 @@ class Store:
             int(rec.get("ttl", DEFAULT_TTL)),
             sig,
             attested,
+            bytes(rec["pubkey"]) if rec.get("pubkey") else None,
         )
         with self._lock:
             self._conn.execute(
                 """
                 INSERT INTO records
                     (id, name, identity, app, aspects, target, ts, ttl,
-                     sig, attested, last_used)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                     sig, attested, last_used, pubkey)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name,
                     identity=excluded.identity,
@@ -106,7 +119,8 @@ class Store:
                     ts=excluded.ts,
                     ttl=excluded.ttl,
                     sig=excluded.sig,
-                    attested=excluded.attested
+                    attested=excluded.attested,
+                    pubkey=excluded.pubkey
                 """,
                 row,
             )
@@ -233,9 +247,11 @@ class Store:
     @staticmethod
     def _row_to_rec(row) -> dict:
         (rid, name, identity, app, aspects, target, ts, ttl, sig,
-         attested, last_used) = row
+         attested, last_used, pubkey) = row
         if sig is not None:
             sig = bytes(sig)
+        if pubkey is not None:
+            pubkey = bytes(pubkey)
         return {
             "v": 1,
             "name": name,
@@ -246,6 +262,7 @@ class Store:
             "ts": ts,
             "ttl": ttl,
             "sig": sig,
+            "pubkey": pubkey,
             "id": rid,
             "attested": bool(attested),
         }

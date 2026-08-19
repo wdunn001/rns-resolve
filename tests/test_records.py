@@ -403,3 +403,29 @@ class TestSignVerify(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerifyStandaloneTest(unittest.TestCase):
+    """Records carrying their registrant pubkey verify with no prior
+    knowledge of the identity (the replication acceptance path)."""
+
+    @unittest.skipUnless(HAVE_RNS, "requires RNS")
+    def test_standalone_roundtrip_and_tamper(self):
+        import RNS
+        from rns_resolve import records
+        ident = RNS.Identity()
+        rec = records.make_record(
+            name="standalone-test", identity_hash_hex=ident.hash.hex(),
+            ts=1000.0, ttl=86400)
+        rec["sig"] = records.sign_record(rec, ident)
+        rec["pubkey"] = ident.get_public_key()
+        self.assertTrue(records.verify_record_standalone(rec))
+        # No pubkey -> not standalone-verifiable.
+        r2 = dict(rec); r2.pop("pubkey")
+        self.assertFalse(records.verify_record_standalone(r2))
+        # Pubkey swapped for another identity's -> hash binding fails.
+        r3 = dict(rec); r3["pubkey"] = RNS.Identity().get_public_key()
+        self.assertFalse(records.verify_record_standalone(r3))
+        # Payload tampered -> signature fails.
+        r4 = dict(rec); r4["name"] = "standalone-tset"
+        self.assertFalse(records.verify_record_standalone(r4))

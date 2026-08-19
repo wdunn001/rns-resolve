@@ -175,3 +175,41 @@ def verify_record(rec, identity):
         return bool(identity.validate(sig, canonical_bytes(rec)))
     except Exception:
         return False
+
+
+def identity_from_pubkey(pubkey_bytes):
+    """RNS.Identity loaded from public-key bytes, or None."""
+    try:
+        import RNS
+        ident = RNS.Identity(create_keys=False)
+        # load_public_key returns None on success in current RNS; judge
+        # success by the identity hash materializing instead.
+        ident.load_public_key(bytes(pubkey_bytes))
+        if not getattr(ident, "hash", None):
+            return None
+        return ident
+    except Exception:
+        return None
+
+
+def verify_record_standalone(rec):
+    """Verify a record using its own embedded ``pubkey`` field.
+
+    This is what makes a record self-certifying for replication: any peer
+    can verify it with no prior knowledge of the registrant. The pubkey is
+    bound to the record by the identity-hash check (an RNS identity hash IS
+    the hash of the public key), so the pubkey needs no signature coverage
+    of its own; a swapped key changes the hash and fails the check.
+    """
+    try:
+        pub = rec.get("pubkey")
+        if not pub:
+            return False
+        ident = identity_from_pubkey(pub)
+        if ident is None:
+            return False
+        if ident.hash.hex() != str(rec.get("identity", "")).lower():
+            return False
+        return verify_record(rec, ident)
+    except Exception:
+        return False

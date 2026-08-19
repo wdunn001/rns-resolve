@@ -215,7 +215,7 @@ def _clean_limit(value):
 def record_public(rec, records_mod=None):
     """Record minus sig, plus id and expires."""
     records_mod = records_mod or _records()
-    pub = {k: v for k, v in rec.items() if k != "sig"}
+    pub = {k: v for k, v in rec.items() if k not in ("sig", "pubkey")}
     pub["id"] = records_mod.record_id(rec)
     pub["expires"] = rec["ts"] + rec["ttl"]
     return pub
@@ -306,6 +306,15 @@ def op_register(payload, link_identity, deps):
         return _err("target derivation failed")
     if not records.verify_record(rec, link_identity):
         return _err("bad signature")
+
+    # Embed the registrant's public key so the record is self-certifying
+    # when replicated to peers that have never seen this identity announce.
+    try:
+        pub = link_identity.get_public_key()
+        if pub:
+            rec["pubkey"] = bytes(pub)
+    except Exception:
+        pass
 
     deps.store.put(rec)
     return {"ok": True, "record": record_public(rec, records)}
