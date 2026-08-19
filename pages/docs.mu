@@ -30,6 +30,12 @@ choose. You can only register names for destinations your own identity
 generates, so nobody can point a name at a destination they do not
 control. Registrations expire unless renewed by use.
 
+Node operators: the intended flow is to register as part of setting your
+node up, not by visiting this page. One command in your deploy reads your
+node's identity and node_name and registers a signed, replicating record:
+python -m rns_resolve.nodereg (see the repository). This page is the
+manual path for everyone else.
+
 >>The trust rules
 
 A resolver is never asked about a real address. Anything shaped like a

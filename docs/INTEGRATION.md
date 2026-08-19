@@ -92,6 +92,29 @@ hashes to enable LXMF-propagation-style replication:
 Peering is optional and off by default. A standalone resolver is a
 perfectly valid deployment.
 
+### Registering a node's name (the intended flow)
+
+Registration belongs in node setup, not in a page visit. A NomadNet node
+already holds both halves a registration needs, its identity file and its
+configured `node_name`, so claiming the name is one command in the node's
+deploy (or a small sidecar that renews the lease):
+
+```sh
+python -m rns_resolve.nodereg \
+    --identity /path/to/nomadnet/storage/identity \
+    --nomadnet-config /path/to/nomadnet/config \
+    --resolver <resolver hash> \
+    --interval 86400   # optional: renew daily; omit for one-shot
+```
+
+The name derives from `node_name` automatically (decorative unicode and
+emoji fold away: a node announcing as bold `RNS-RESOLVE` with a compass
+registers as `rns-resolve`; override with `--name`). Because the node's
+own private key signs the record, setup registrations are self-certifying
+and replicate between resolvers. The `register.mu` page remains the manual
+fallback for visitors without their keys at hand; those records are
+resolver-attested and never replicate.
+
 ### NomadNet pages
 
 `pages/index.mu` (lookup) and `pages/register.mu` (attested registration)

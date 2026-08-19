@@ -150,7 +150,12 @@ def _remote_request(resolver_hash, payload, rns_config, timeout, identity=None):
     import RNS
     umsgpack = _msgpack()
 
-    RNS.Reticulum(configdir=rns_config)
+    try:
+        RNS.Reticulum(configdir=rns_config)
+    except Exception:
+        # Already initialised in this process (loop callers like nodereg);
+        # a genuine init failure surfaces loudly at the path request below.
+        pass
     dest_bytes = bytes.fromhex(resolver_hash)
 
     if not RNS.Transport.has_path(dest_bytes):
@@ -274,12 +279,16 @@ def _load_client_identity(config_dir):
 
 def register_remote(resolver_hash, name, config_dir, rns_config=None,
                     app=DEFAULT_APP, aspects=None, ttl=DEFAULT_TTL,
-                    timeout=DEFAULT_TIMEOUT):
+                    timeout=DEFAULT_TIMEOUT, identity=None):
     """Register a name: identify on the link, sign the canonical record
-    with the client identity, send op "register"."""
+    with the registrant identity, send op "register". By default the
+    identity is the client identity at <config_dir>/client_identity; pass
+    identity= to register with another key you hold (e.g. a NomadNet
+    node's own identity, see rns_resolve.nodereg)."""
     from .records import sign_record
     aspects = list(aspects) if aspects else list(DEFAULT_ASPECTS)
-    identity = _load_client_identity(config_dir)
+    if identity is None:
+        identity = _load_client_identity(config_dir)
     name_norm = normalize_name(name)
     ts = time.time()
     rec = {
