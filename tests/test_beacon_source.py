@@ -282,7 +282,8 @@ class TestDegradation(BeaconSourceTestCase):
         self.assertEqual(len(out), 1)
         self.assertTrue(src.available())
         self.assertEqual(len(mod.connect_calls), 2)
-        self.assertEqual(len(mod.executed), 2)
+        # One failed execute, then the two-query success pass (ILIKE + top).
+        self.assertEqual(len(mod.executed), 3)
 
     def test_persistent_query_failure_gives_up_after_retry(self):
         mod = self.install(make_fake_psycopg2(execute_failures=99))
@@ -318,10 +319,11 @@ class TestSqlParameterization(BeaconSourceTestCase):
         mod = self.install(make_fake_psycopg2(rows=[]))
         src = BeaconSource(env=dict(ENV))
         src.candidates("alpha")
-        self.assertEqual(len(mod.executed), 1)
-        sql, params = mod.executed[0]
-        # Every % in the SQL text must be a %s placeholder.
-        self.assertEqual(re.findall(r"%(?!s)", sql), [])
+        # Two queries per call: the ILIKE pre-filter and the top-nodes pull.
+        self.assertEqual(len(mod.executed), 2)
+        for sql, params in mod.executed:
+            # Every % in the SQL text must be a %s placeholder.
+            self.assertEqual(re.findall(r"%(?!s)", sql), [])
 
     def test_query_travels_as_bound_parameter(self):
         mod = self.install(make_fake_psycopg2(rows=[]))

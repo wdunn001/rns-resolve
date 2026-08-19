@@ -19,6 +19,7 @@ import math
 import os
 import re
 import time
+import unicodedata
 from datetime import datetime, timezone
 
 # Trust-ranking constants (see CONTRACTS.md, beacon_source section).
@@ -29,13 +30,29 @@ WHOLE_WORD_BONUS = 1.25
 
 # How many rows to pull from the DB before ranking in Python.
 _FETCH_CAP = 200
+# Mesh announce names are frequently decorative unicode (Mathematical
+# Sans-Serif Bold and the like), which SQL ILIKE can never match against an
+# ASCII query. So in addition to the ILIKE pre-filter we always pull the
+# top announced nodes and do the real matching in Python on NFKC-casefolded
+# text (folds bold/fullwidth variants down to plain letters).
+_TOP_CAP = 500
 
-# The only percent signs in this string are %s placeholders.
+# The only percent signs in these strings are %s placeholders.
 _SQL_CANDIDATES = (
     "SELECT dest_hash, name, last_seen, announce_count, reachable "
     "FROM nodes WHERE name ILIKE %s "
     "ORDER BY announce_count DESC LIMIT %s"
 )
+_SQL_TOP = (
+    "SELECT dest_hash, name, last_seen, announce_count, reachable "
+    "FROM nodes WHERE name IS NOT NULL "
+    "ORDER BY announce_count DESC LIMIT %s"
+)
+
+
+def fold(s):
+    """NFKC-normalize and casefold text for matching (bold unicode -> ascii)."""
+    return unicodedata.normalize("NFKC", str(s)).casefold()
 
 
 def recency_decay(last_seen, now=None, halflife=HALFLIFE_SECONDS):
@@ -158,6 +175,12 @@ class BeaconSource:
         for _attempt in (0, 1):
             try:
                 rows = self._run_query(_SQL_CANDIDATES, params)
+                # Unicode-name coverage: also pull the top announced nodes
+                # and let the folded Python match decide.
+                seen = {str(r[0]).lower() for r in rows if r and r[0]}
+                for row in self._run_query(_SQL_TOP, (_TOP_CAP,)):
+                    if row and row[0] and str(row[0]).lower() not in seen:
+                        rows.append(row)
                 ok = True
                 break
             except Exception:
@@ -215,8 +238,9 @@ class BeaconSource:
 
     def _rank(self, q, rows, limit):
         now = time.time()
-        q_lower = q.lower()
+        q_fold = fold(q)
         out = []
+        seen_hashes = set()
         for row in rows or []:
             try:
                 dest_hash, name, last_seen, announce_count, reachable = row[:5]
@@ -225,9 +249,14 @@ class BeaconSource:
             if not dest_hash or not name:
                 continue
             name = str(name)
-            # Defensive re-check of the case-insensitive substring match.
-            if q_lower not in name.lower():
+            key = str(dest_hash).lower()
+            if key in seen_hashes:
                 continue
+            # The real match: folded substring, so decorative unicode names
+            # (bold letters, emoji padding) answer plain-ascii queries.
+            if q_fold not in fold(name):
+                continue
+            seen_hashes.add(key)
             count = int(announce_count or 0)
             reachable = bool(reachable)
             trust = (
@@ -235,7 +264,7 @@ class BeaconSource:
                 * recency_decay(last_seen, now=now)
                 * (REACHABLE_FACTOR if reachable else UNREACHABLE_FACTOR)
             )
-            if _whole_word(q_lower, name):
+            if _whole_word(q_fold, fold(name)):
                 trust *= WHOLE_WORD_BONUS
             out.append(
                 {
