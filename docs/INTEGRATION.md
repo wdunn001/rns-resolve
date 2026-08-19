@@ -61,6 +61,9 @@ destination input:
 | `RESOLVE_PRIVATE_PORT` | `8226` | binds 127.0.0.1 ONLY; JSON API (`GET /resolve`, `POST /register`, `POST /unregister`) for colocated NomadNet exec pages. Never expose this port off-host: records created here are resolver-attested on your resolver's say-so |
 | `RESOLVE_PEERS` | empty | comma-separated destination hashes of peer resolvers; empty disables replication |
 | `RESOLVE_PEERING_COST` | `18` | inbound sync peering-key cost, enforced with LXMF's own `LXStamper` (same key material and workblock as LXMPeer; default mirrors `LXMRouter.PEERING_COST`). `0` disables stamping. Senders self-negotiate: a keyless offer is answered with the cost and retried once with a generated key. See `docs/LXMPEER-GAPS.md` |
+| `RESOLVE_AUDIT_INTERVAL` | `3600` | seconds between MOFU withholding audits (inventory every peer, repair gaps, judge omissions) |
+| `RESOLVE_AUDIT_GRACE` | `1800` | a record must be older than this before its absence at a peer counts as evidence |
+| `RESOLVE_AUDIT_STRIKES` | `3` | consecutive audits a peer must lack the same expected record before being flagged |
 | `RESOLVE_SYNC_FROM` | empty | comma-separated IDENTITY hashes allowed to sync inbound (the `from_static_only` equivalent); empty = open peering |
 | `BEACON_DB_HOST/PORT/NAME/USER/PASSWORD` | unset | optional read-only Postgres source of announce-observed names; absent or unreachable degrades announced candidates to empty, service stays up |
 
@@ -93,6 +96,44 @@ hashes to enable LXMF-propagation-style replication:
 
 Peering is optional and off by default. A standalone resolver is a
 perfectly valid deployment.
+
+### Catching a peer that withholds (MOFU)
+
+Signatures stop a peer from forging a record, but nothing in a signature
+stops a peer from lying by OMISSION: it can simply never offer records it
+holds. The only way to see an omission is to compare a peer's inventory
+against what its fellow peers hold, which is what the audit does.
+
+Every `RESOLVE_AUDIT_INTERVAL` (default 1 hour) each peer is asked for its
+record-id inventory (`sync.inventory`). A record is treated as EXPECTED when
+a majority of responding parties (peers plus this resolver) hold it. A peer
+lacking an expected record is a candidate, subject to two guards that keep
+ordinary propagation lag from looking like malice:
+
+- `RESOLVE_AUDIT_GRACE` (default 30 min): a record must be older than this
+  before its absence counts at all, so a record still in flight is never
+  evidence.
+- `RESOLVE_AUDIT_STRIKES` (default 3): the same peer must lack the same
+  expected record across that many CONSECUTIVE audits before it is flagged.
+  One slow round is noise; three in a row is a pattern.
+
+The audit repairs before it judges. Anything a peer holds that this resolver
+does not is pulled (`sync.fetch`) and validated exactly like a pushed record,
+signature and re-derived target included, so a peer you are repairing FROM
+can no more forge a record than one pushing to you. That is the part that
+actually defeats withholding: as long as one honest peer holds a record, it
+reaches everyone, and the omission accomplishes nothing.
+
+Flagging is disclosure, never enforcement. Findings appear under
+`peer_audit` in `/healthz`; no peer is ever banned automatically, because
+withholding and being partitioned are indistinguishable from here and the
+right response is a human looking at the evidence. To act on a finding, put
+the honest peers in `RESOLVE_SYNC_FROM`.
+
+Honest limit: with only two resolvers there is no majority to appeal to (two
+voters, threshold two), so the audit can repair but effectively cannot
+accuse. Withholding detection needs at least three participants to mean
+anything.
 
 ### Registering a node's name (the intended flow)
 

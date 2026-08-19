@@ -106,6 +106,18 @@ def build_manifest(dest_hex=""):
                 "summary": "Peer replication: push self-certifying records.",
                 "request": {"v": "int!", "op": "str!", "records": "list!"},
             },
+            {
+                "op": "sync.inventory",
+                "summary": "Peer replication: list the record ids we hold, "
+                           "so peers can detect withholding by comparison.",
+                "request": {"v": "int!", "op": "str!"},
+            },
+            {
+                "op": "sync.fetch",
+                "summary": "Peer replication: return specific records by id, "
+                           "so a peer can pull what it is missing.",
+                "request": {"v": "int!", "op": "str!", "ids": "list!"},
+            },
         ],
     }
 
@@ -513,6 +525,16 @@ def _make_health_handler(svc):
                 "beacon_db": _beacon_available(svc.deps),
                 "dest": svc.dest_hex,
             }
+            # MOFU audit state, when replication is enabled. Reported, never
+            # enforced: a flagged peer is evidence for an operator to weigh,
+            # not a ban, because withholding and being partitioned look the
+            # same from here.
+            sched = getattr(svc, "peer_scheduler", None)
+            if sched is not None:
+                try:
+                    body["peer_audit"] = sched.audit_state()
+                except Exception:
+                    pass
             self._send(200 if svc.rns_ready else 503, body)
 
         def _send(self, code, obj):
@@ -623,6 +645,16 @@ class ResolveService:
                      env.get("RESOLVE_SYNC_FROM", "").split(",")
                      if p.strip()]
         self.sync_from = set(sync_from) if sync_from else None
+        # MOFU withholding-audit knobs (see docs/INTEGRATION.md). Bad values
+        # fall back to the module defaults rather than failing startup.
+        def _int_env(name, default):
+            try:
+                return int(env.get(name, "") or default)
+            except ValueError:
+                return default
+        self.audit_interval = _int_env("RESOLVE_AUDIT_INTERVAL", 3600)
+        self.audit_grace = _int_env("RESOLVE_AUDIT_GRACE", 1800)
+        self.audit_strikes = _int_env("RESOLVE_AUDIT_STRIKES", 3)
         self.env = env
 
         self.rns_ready = False
@@ -716,7 +748,10 @@ class ResolveService:
         try:
             from rns_resolve import peers
             self.peer_scheduler = peers.PeerScheduler(
-                self.deps.store, self.peer_hashes, self)
+                self.deps.store, self.peer_hashes, self,
+                audit_interval=self.audit_interval,
+                audit_grace=self.audit_grace,
+                audit_strikes=self.audit_strikes)
             self.peer_scheduler.start()
         except Exception:
             self.peer_scheduler = None

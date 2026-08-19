@@ -89,6 +89,37 @@ MAX_PEERING_COST = 26
 # propagation_sync_limit; ours are simple hard caps).
 MAX_OFFER_IDS = 5000
 MAX_PUSH_RECORDS = 500
+# sync.fetch: how many records one pull may ask for.
+MAX_FETCH_IDS = 200
+
+# --- MOFU (majority-of-peers) withholding audit ----------------------------
+# A peer can pass every authentication check and still lie by OMISSION: it
+# simply never offers records it holds. Signatures cannot catch that, because
+# nothing is forged. The only way to see an omission is to compare a peer's
+# claimed inventory against what its fellow peers hold.
+#
+# So each audit round asks every peer for its record-id inventory, forms the
+# union as the "known universe", and calls a record EXPECTED when a majority
+# of responding parties (peers plus ourselves) hold it. A peer that lacks an
+# expected record is missing something its fellows agree exists.
+#
+# Two guards keep normal propagation lag from looking like malice:
+#   GRACE   a record must be older than this before its absence counts, so a
+#           just-registered record in flight is never evidence.
+#   STRIKES the same peer must lack the same expected record across this many
+#           CONSECUTIVE audits before it is flagged. One slow round is noise.
+#
+# The audit REPAIRS as well as accuses: anything in the universe we do not
+# hold is pulled from a peer that does and validated exactly like a push, so
+# one honest peer is enough to defeat another's withholding. Detection alone
+# would be a complaint; the pull is the actual defence.
+#
+# Flagging is disclosure, never enforcement. A flagged peer is reported, not
+# banned: withholding and being partitioned look identical from here, and the
+# design's whole stance is to publish evidence and let a human decide.
+AUDIT_INTERVAL = 60 * 60         # seconds between audit rounds per scheduler
+AUDIT_GRACE = 30 * 60            # record age before its absence counts
+AUDIT_STRIKES = 3                # consecutive rounds before a peer is flagged
 
 
 def _sync_gate(payload, ctx):
@@ -134,6 +165,95 @@ def _sync_gate(payload, ctx):
     return None
 
 
+def expected_records(inventories, own_ids):
+    """Ids a MAJORITY of responding parties hold (peers plus ourselves).
+
+    inventories: {peer_hex: set(ids)} for peers that ANSWERED this round.
+    A peer that did not answer is absent from the vote entirely, so an
+    unreachable peer neither accuses nor excuses anyone.
+    """
+    own_ids = set(own_ids or ())
+    voters = len(inventories) + 1          # +1 for ourselves
+    if voters < 2:
+        return set()                       # nobody to compare against
+    threshold = voters // 2 + 1            # strict majority
+    universe = set(own_ids)
+    for ids in inventories.values():
+        universe |= set(ids)
+    expected = set()
+    for rid in universe:
+        holders = sum(1 for ids in inventories.values() if rid in ids)
+        if rid in own_ids:
+            holders += 1
+        if holders >= threshold:
+            expected.add(rid)
+    return expected
+
+
+def withholding_candidates(inventories, own_ids, ages, now=None,
+                           grace=AUDIT_GRACE):
+    """{peer_hex: set(expected ids that peer lacks)} for THIS round.
+
+    ages: {record_id: ts} for records whose age we know. An id whose age is
+    unknown is treated as too young to count, because we cannot prove it has
+    been around long enough to have propagated.
+    """
+    now = time.time() if now is None else now
+    ages = ages or {}
+    expected = expected_records(inventories, own_ids)
+    settled = {rid for rid in expected
+               if rid in ages and (now - float(ages[rid])) >= grace}
+    out = {}
+    for peer, ids in inventories.items():
+        lacking = settled - set(ids)
+        if lacking:
+            out[peer] = lacking
+    return out
+
+
+class WithholdingAudit:
+    """Tracks per-peer omissions across rounds and flags sustained ones."""
+
+    def __init__(self, strikes=AUDIT_STRIKES):
+        self.strikes_required = strikes
+        # {peer_hex: {record_id: consecutive_rounds_missing}}
+        self._strikes = {}
+        self._last_round = {}
+
+    def record_round(self, candidates):
+        """Fold one round's candidates in. Returns {peer: flagged_ids}."""
+        flagged = {}
+        peers = set(self._strikes) | set(candidates)
+        for peer in peers:
+            missing = set(candidates.get(peer, ()))
+            counts = self._strikes.get(peer, {})
+            updated = {}
+            for rid in missing:
+                updated[rid] = counts.get(rid, 0) + 1
+            # ids no longer missing reset to zero by simply being dropped
+            self._strikes[peer] = updated
+            self._last_round[peer] = sorted(missing)
+            hits = {rid for rid, n in updated.items()
+                    if n >= self.strikes_required}
+            if hits:
+                flagged[peer] = hits
+        return flagged
+
+    def state(self):
+        """Serializable view for /healthz and operators."""
+        out = {}
+        for peer, counts in self._strikes.items():
+            if not counts:
+                continue
+            out[peer] = {
+                "missing_now": len(counts),
+                "max_consecutive_rounds": max(counts.values()),
+                "flagged": max(counts.values()) >= self.strikes_required,
+                "sample": sorted(counts)[:5],
+            }
+        return out
+
+
 def handle_sync(op, payload, store, ctx=None):
     """Handle a sync op. Returns a reply dict, or None if op is not a
     sync op. Pure function apart from store access. ctx (optional) carries
@@ -153,6 +273,34 @@ def handle_sync(op, payload, store, ctx=None):
         clean = [i for i in ids if isinstance(i, str)]
         want = store.missing(clean)
         return {"ok": True, "want": want}
+
+    if op == "sync.inventory":
+        # Answer with the ids of every replicable record we hold. This is
+        # what makes withholding visible: a peer's fellows can compare what
+        # it claims to have against what they have. Attested records are
+        # excluded (all_ids already does that) because they never replicate
+        # and their absence elsewhere is correct, not suspicious.
+        gate = _sync_gate(payload, ctx)
+        if gate is not None:
+            return gate
+        ids = store.all_ids()
+        return {"ok": True, "ids": ids, "count": len(ids)}
+
+    if op == "sync.fetch":
+        # Serve specific records by id, so a peer can PULL what it is
+        # missing instead of waiting to be told. This is the repair half of
+        # the audit: one honest holder defeats another peer's omission.
+        gate = _sync_gate(payload, ctx)
+        if gate is not None:
+            return gate
+        ids = payload.get("ids")
+        if not isinstance(ids, list):
+            return {"ok": False, "err": "bad fetch"}
+        if len(ids) > MAX_FETCH_IDS:
+            return {"ok": False, "err": "fetch too large"}
+        clean = [i for i in ids if isinstance(i, str)]
+        recs = [r for r in store.get_many(clean) if r.get("sig") is not None]
+        return {"ok": True, "records": recs}
 
     if op == "sync.push":
         gate = _sync_gate(payload, ctx)
@@ -225,10 +373,13 @@ class PeerScheduler:
     up to MAX_BACKOFF; a successful sync resets it to SYNC_INTERVAL.
     """
 
-    def __init__(self, store, peer_hashes, rns_owner):
+    def __init__(self, store, peer_hashes, rns_owner, audit_interval=None,
+                 audit_grace=None, audit_strikes=None):
         self.store = store
         self.peer_hashes = list(peer_hashes)
         self.rns_owner = rns_owner
+        self.audit_interval = int(audit_interval or AUDIT_INTERVAL)
+        self.audit_grace = int(audit_grace or AUDIT_GRACE)
         self._stop = threading.Event()
         self._thread = None
         self._interval = {h: SYNC_INTERVAL for h in self.peer_hashes}
@@ -236,6 +387,11 @@ class PeerScheduler:
         # Per-peer peering keys, LXMPeer-style: {peer_hex: (key, value, cost)}.
         # Cheap to regenerate (25-round workblock), so memory-only.
         self._peer_keys = {}
+        # MOFU withholding audit
+        self.audit = WithholdingAudit(
+            strikes=int(audit_strikes or AUDIT_STRIKES))
+        self._next_audit = time.time() + self.audit_interval
+        self._last_audit = None
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -263,6 +419,12 @@ class PeerScheduler:
                         self.sync_peer(peer)
                     except Exception:
                         self._note_failure(peer)
+            if not self._stop.is_set() and time.time() >= self._next_audit:
+                try:
+                    self.audit_peers()
+                except Exception:
+                    pass
+                self._next_audit = time.time() + self.audit_interval
             self._stop.wait(30)
 
     # -- backoff math -------------------------------------------------------
@@ -349,6 +511,119 @@ class PeerScheduler:
         finally:
             if link is not None:
                 self._close_link(link)
+
+    # -- MOFU withholding audit ---------------------------------------------
+
+    def fetch_inventory(self, hash_hex):
+        """Ask one peer what record ids it holds. None if it did not answer."""
+        link = None
+        try:
+            link = self._open_link(hash_hex)
+            if link is None:
+                return None
+            payload = {"v": 1, "op": "sync.inventory"}
+            key = self._cached_key(hash_hex)
+            if key is not None:
+                payload["key"] = key
+            reply = self._request(link, payload)
+            if (isinstance(reply, dict) and not reply.get("ok")
+                    and "peering key" in str(reply.get("err", ""))
+                    and reply.get("cost")):
+                key = self._ensure_peering_key(hash_hex, int(reply["cost"]))
+                if key is not None:
+                    payload["key"] = key
+                    reply = self._request(link, payload)
+            if not isinstance(reply, dict) or not reply.get("ok"):
+                return None
+            ids = reply.get("ids")
+            return set(i for i in ids if isinstance(i, str)) if isinstance(ids, list) else None
+        except Exception:
+            return None
+        finally:
+            if link is not None:
+                self._close_link(link)
+
+    def pull_records(self, hash_hex, ids):
+        """Pull specific records from a peer and store the valid ones.
+
+        This is the repair half of the audit. Pulled records go through the
+        same validation as pushed ones, so a peer we are repairing FROM can
+        no more forge a record than one pushing to us. Returns accepted count.
+        """
+        ids = [i for i in ids if isinstance(i, str)][:MAX_FETCH_IDS]
+        if not ids:
+            return 0
+        link = None
+        try:
+            link = self._open_link(hash_hex)
+            if link is None:
+                return 0
+            payload = {"v": 1, "op": "sync.fetch", "ids": ids}
+            key = self._cached_key(hash_hex)
+            if key is not None:
+                payload["key"] = key
+            reply = self._request(link, payload)
+            if not isinstance(reply, dict) or not reply.get("ok"):
+                return 0
+            accepted = 0
+            for rec in (reply.get("records") or []):
+                if _accept_pushed_record(rec, self.store):
+                    accepted += 1
+            return accepted
+        except Exception:
+            return 0
+        finally:
+            if link is not None:
+                self._close_link(link)
+
+    def audit_peers(self):
+        """One MOFU round: inventory every peer, repair our gaps, then flag
+        peers that persistently lack what their fellows agree exists."""
+        inventories = {}
+        for peer in self.peer_hashes:
+            if self._stop.is_set():
+                break
+            inv = self.fetch_inventory(peer)
+            if inv is not None:
+                inventories[peer] = inv
+        result = {"peers_answering": len(inventories), "pulled": 0,
+                  "flagged": {}, "candidates": {}}
+        if not inventories:
+            self._last_audit = result
+            return result
+
+        own = set(self.store.all_ids())
+
+        # Repair first: anything a peer holds that we do not, pull and verify.
+        # Doing this BEFORE judging also means we stop accusing others of
+        # gaps we are about to fill ourselves.
+        for peer, ids in inventories.items():
+            gap = list(ids - own)
+            if gap:
+                got = self.pull_records(peer, gap)
+                result["pulled"] += got
+                if got:
+                    own = set(self.store.all_ids())
+
+        ages = {r.get("id"): r.get("ts")
+                for r in self.store.get_many(sorted(own))
+                if r.get("id")}
+        candidates = withholding_candidates(inventories, own, ages,
+                                            grace=self.audit_grace)
+        result["candidates"] = {p: sorted(v) for p, v in candidates.items()}
+        flagged = self.audit.record_round(candidates)
+        result["flagged"] = {p: sorted(v) for p, v in flagged.items()}
+        self._last_audit = result
+        return result
+
+    def audit_state(self):
+        """Serializable audit view for /healthz."""
+        return {
+            "peers": len(self.peer_hashes),
+            "strikes_required": self.audit.strikes_required,
+            "last_round": self._last_audit,
+            "suspects": self.audit.state(),
+        }
 
     # -- peering keys (LXMPeer semantics via LXMF's own LXStamper) ---------
 
@@ -471,9 +746,13 @@ class PeerScheduler:
             pass
 
 
-def start_scheduler(store, peer_hashes, rns_owner):
+def start_scheduler(store, peer_hashes, rns_owner, audit_interval=None,
+                    audit_grace=None, audit_strikes=None):
     """Convenience wiring for service.py: build, start, and return a
     PeerScheduler. peer_hashes may be an iterable of 32-hex strings."""
-    scheduler = PeerScheduler(store, peer_hashes, rns_owner)
+    scheduler = PeerScheduler(store, peer_hashes, rns_owner,
+                              audit_interval=audit_interval,
+                              audit_grace=audit_grace,
+                              audit_strikes=audit_strikes)
     scheduler.start()
     return scheduler

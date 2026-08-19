@@ -24,6 +24,23 @@ reason is dropped by accident. Line references are against LXMF as of
 | Peer persistence across restarts (peers serialized with peering keys) | `LXMPeer.to_dict/from_dict` | **Diverged**: peer list from env; peering keys regenerated in memory | A 25-round peering key is trivial to regenerate at startup; persisting it buys nothing at our scale. |
 | Unpeering / peer removal protocol | `LXMRouter` | **Deferred** | Removing a hash from `RESOLVE_PEERS` and restarting is the operator path for now. |
 
+## Beyond LXMPeer: withholding detection (MOFU)
+
+One thing LXMF does not need and we do: LXMF peers exchange opaque messages,
+so a propagation node that withholds simply delivers less mail. Our records
+are name-to-destination claims, so a resolver that withholds can shape what
+its users can find, which is a different and more interesting kind of harm.
+
+Signatures cannot catch it, because nothing is forged. So the audit compares
+inventories across peers (`sync.inventory`), treats a record held by a
+majority of responding parties as expected, and flags a peer that lacks an
+expected record across several consecutive rounds, with an age grace so
+records still propagating are never evidence. Crucially it also repairs:
+whatever a peer holds and we lack is pulled (`sync.fetch`) and validated
+exactly like a push, so one honest holder defeats another's omission. See
+`docs/INTEGRATION.md` for the operator view and the honest limit that two
+resolvers cannot form a majority.
+
 ## The judgment call this table encodes
 
 LXMF's extra machinery exists because propagation nodes move **large volumes
