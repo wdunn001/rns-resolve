@@ -106,6 +106,18 @@ def build_manifest(dest_hex=""):
                 "summary": "Peer replication: push self-certifying records.",
                 "request": {"v": "int!", "op": "str!", "records": "list!"},
             },
+            {
+                "op": "sync.inventory",
+                "summary": "Peer replication: list the record ids we hold, "
+                           "so peers can detect withholding by comparison.",
+                "request": {"v": "int!", "op": "str!"},
+            },
+            {
+                "op": "sync.fetch",
+                "summary": "Peer replication: return specific records by id, "
+                           "so a peer can pull what it is missing.",
+                "request": {"v": "int!", "op": "str!", "ids": "list!"},
+            },
         ],
     }
 
@@ -513,6 +525,16 @@ def _make_health_handler(svc):
                 "beacon_db": _beacon_available(svc.deps),
                 "dest": svc.dest_hex,
             }
+            # MOFU audit state, when replication is enabled. Reported, never
+            # enforced: a flagged peer is evidence for an operator to weigh,
+            # not a ban, because withholding and being partitioned look the
+            # same from here.
+            sched = getattr(svc, "peer_scheduler", None)
+            if sched is not None:
+                try:
+                    body["peer_audit"] = sched.audit_state()
+                except Exception:
+                    pass
             self._send(200 if svc.rns_ready else 503, body)
 
         def _send(self, code, obj):

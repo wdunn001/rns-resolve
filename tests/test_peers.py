@@ -557,3 +557,164 @@ class PeeringKeyNegotiationTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertNotIn("key", sent[0])
         self.assertEqual(sent[1]["key"], b"stamp-key")
+
+
+class ExpectedRecordsTest(unittest.TestCase):
+    def test_needs_at_least_two_voters(self):
+        self.assertEqual(peers.expected_records({}, {"a"}), set())
+
+    def test_majority_including_self(self):
+        # 2 peers + self = 3 voters, threshold 2.
+        inv = {"p1": {"a", "b"}, "p2": {"a"}}
+        exp = peers.expected_records(inv, {"a"})
+        self.assertIn("a", exp)          # 3/3
+        self.assertNotIn("b", exp)       # 1/3 only
+
+    def test_record_only_peers_have_is_still_expected(self):
+        inv = {"p1": {"x"}, "p2": {"x"}}
+        self.assertIn("x", peers.expected_records(inv, set()))
+
+    def test_non_answering_peers_do_not_vote(self):
+        # p2 absent entirely: 1 peer + self = 2 voters, threshold 2.
+        inv = {"p1": {"a"}}
+        self.assertIn("a", peers.expected_records(inv, {"a"}))
+        self.assertNotIn("z", peers.expected_records(inv, {"z"}))
+
+
+class WithholdingCandidatesTest(unittest.TestCase):
+    def setUp(self):
+        self.now = 1_000_000.0
+        self.old = self.now - (peers.AUDIT_GRACE + 60)
+        self.fresh = self.now - 5
+
+    def test_flags_peer_lacking_settled_expected_record(self):
+        inv = {"p1": {"a"}, "p2": set()}
+        c = peers.withholding_candidates(inv, {"a"}, {"a": self.old},
+                                         now=self.now)
+        self.assertEqual(c, {"p2": {"a"}})
+
+    def test_grace_protects_fresh_records(self):
+        inv = {"p1": {"a"}, "p2": set()}
+        c = peers.withholding_candidates(inv, {"a"}, {"a": self.fresh},
+                                         now=self.now)
+        self.assertEqual(c, {})
+
+    def test_unknown_age_never_counts(self):
+        inv = {"p1": {"a"}, "p2": set()}
+        c = peers.withholding_candidates(inv, {"a"}, {}, now=self.now)
+        self.assertEqual(c, {})
+
+    def test_minority_record_is_not_expected_so_absence_is_fine(self):
+        inv = {"p1": {"rare"}, "p2": set()}
+        c = peers.withholding_candidates(inv, set(), {"rare": self.old},
+                                         now=self.now)
+        self.assertEqual(c, {})
+
+
+class WithholdingAuditTest(unittest.TestCase):
+    def test_flags_only_after_consecutive_strikes(self):
+        a = peers.WithholdingAudit(strikes=3)
+        self.assertEqual(a.record_round({"p": {"x"}}), {})
+        self.assertEqual(a.record_round({"p": {"x"}}), {})
+        self.assertEqual(a.record_round({"p": {"x"}}), {"p": {"x"}})
+
+    def test_recovery_resets_strikes(self):
+        a = peers.WithholdingAudit(strikes=2)
+        a.record_round({"p": {"x"}})
+        a.record_round({})                      # peer caught up
+        self.assertEqual(a.record_round({"p": {"x"}}), {})   # back to 1
+
+    def test_state_reports_suspects(self):
+        a = peers.WithholdingAudit(strikes=2)
+        a.record_round({"p": {"x", "y"}})
+        a.record_round({"p": {"x", "y"}})
+        st = a.state()
+        self.assertTrue(st["p"]["flagged"])
+        self.assertEqual(st["p"]["missing_now"], 2)
+
+
+class SyncInventoryFetchTest(unittest.TestCase):
+    def setUp(self):
+        self.store = FakeStore()
+        self._orig = peers._lxstamper
+        peers._lxstamper = lambda: None
+
+    def tearDown(self):
+        peers._lxstamper = self._orig
+
+    def ctx_open(self):
+        return {"peering_cost": 0, "link_identity": None,
+                "self_identity_hash": b"S" * 16,
+                "allowed_sync_identities": None}
+
+    def test_inventory_lists_replicable_ids(self):
+        r = peers.handle_sync("sync.inventory", {}, self.store, self.ctx_open())
+        self.assertTrue(r["ok"])
+        self.assertEqual(set(r["ids"]), set(self.store.all_ids()))
+        self.assertEqual(r["count"], len(r["ids"]))
+
+    def test_fetch_returns_only_signed_records(self):
+        r = peers.handle_sync("sync.fetch", {"ids": self.store.all_ids()},
+                              self.store, self.ctx_open())
+        self.assertTrue(r["ok"])
+        self.assertTrue(all(rec.get("sig") is not None for rec in r["records"]))
+
+    def test_fetch_rejects_oversized_request(self):
+        ids = ["a" * 32] * (peers.MAX_FETCH_IDS + 1)
+        r = peers.handle_sync("sync.fetch", {"ids": ids}, self.store,
+                              self.ctx_open())
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["err"], "fetch too large")
+
+    def test_inventory_is_gated_like_other_sync_ops(self):
+        peers._lxstamper = lambda: None
+        ctx = {"peering_cost": 18, "link_identity": None,
+               "self_identity_hash": b"S" * 16,
+               "allowed_sync_identities": None}
+        r = peers.handle_sync("sync.inventory", {}, self.store, ctx)
+        self.assertFalse(r["ok"])
+
+
+class AuditRoundTest(unittest.TestCase):
+    """audit_peers(): inventory -> repair -> judge, with RNS stubbed out."""
+
+    def _sched(self, inventories, store=None):
+        store = store or FakeStore()
+        class Owner:
+            def get_identity(self):
+                return None
+        s = peers.PeerScheduler(store, list(inventories), Owner())
+        s.fetch_inventory = lambda h: inventories[h]
+        s.pulled = []
+        def fake_pull(h, ids):
+            s.pulled.append((h, sorted(ids)))
+            return 0
+        s.pull_records = fake_pull
+        return s
+
+    def test_pulls_records_it_is_missing(self):
+        store = FakeStore()
+        own = set(store.all_ids())
+        missing = "f" * 32
+        s = self._sched({"p1": own | {missing}}, store)
+        s.audit_peers()
+        self.assertEqual(s.pulled, [("p1", [missing])])
+
+    def test_no_pull_when_nothing_is_missing(self):
+        store = FakeStore()
+        s = self._sched({"p1": set(store.all_ids())}, store)
+        s.audit_peers()
+        self.assertEqual(s.pulled, [])
+
+    def test_unanswering_peers_produce_empty_round(self):
+        s = self._sched({"p1": None})
+        s.fetch_inventory = lambda h: None
+        r = s.audit_peers()
+        self.assertEqual(r["peers_answering"], 0)
+        self.assertEqual(r["flagged"], {})
+
+    def test_audit_state_is_serializable(self):
+        import json
+        s = self._sched({"p1": set()})
+        s.audit_peers()
+        json.dumps(s.audit_state())
