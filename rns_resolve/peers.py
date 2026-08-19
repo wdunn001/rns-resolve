@@ -373,10 +373,13 @@ class PeerScheduler:
     up to MAX_BACKOFF; a successful sync resets it to SYNC_INTERVAL.
     """
 
-    def __init__(self, store, peer_hashes, rns_owner):
+    def __init__(self, store, peer_hashes, rns_owner, audit_interval=None,
+                 audit_grace=None, audit_strikes=None):
         self.store = store
         self.peer_hashes = list(peer_hashes)
         self.rns_owner = rns_owner
+        self.audit_interval = int(audit_interval or AUDIT_INTERVAL)
+        self.audit_grace = int(audit_grace or AUDIT_GRACE)
         self._stop = threading.Event()
         self._thread = None
         self._interval = {h: SYNC_INTERVAL for h in self.peer_hashes}
@@ -385,8 +388,9 @@ class PeerScheduler:
         # Cheap to regenerate (25-round workblock), so memory-only.
         self._peer_keys = {}
         # MOFU withholding audit
-        self.audit = WithholdingAudit()
-        self._next_audit = time.time() + AUDIT_INTERVAL
+        self.audit = WithholdingAudit(
+            strikes=int(audit_strikes or AUDIT_STRIKES))
+        self._next_audit = time.time() + self.audit_interval
         self._last_audit = None
 
     # -- lifecycle ----------------------------------------------------------
@@ -420,7 +424,7 @@ class PeerScheduler:
                     self.audit_peers()
                 except Exception:
                     pass
-                self._next_audit = time.time() + AUDIT_INTERVAL
+                self._next_audit = time.time() + self.audit_interval
             self._stop.wait(30)
 
     # -- backoff math -------------------------------------------------------
@@ -604,7 +608,8 @@ class PeerScheduler:
         ages = {r.get("id"): r.get("ts")
                 for r in self.store.get_many(sorted(own))
                 if r.get("id")}
-        candidates = withholding_candidates(inventories, own, ages)
+        candidates = withholding_candidates(inventories, own, ages,
+                                            grace=self.audit_grace)
         result["candidates"] = {p: sorted(v) for p, v in candidates.items()}
         flagged = self.audit.record_round(candidates)
         result["flagged"] = {p: sorted(v) for p, v in flagged.items()}
@@ -741,9 +746,13 @@ class PeerScheduler:
             pass
 
 
-def start_scheduler(store, peer_hashes, rns_owner):
+def start_scheduler(store, peer_hashes, rns_owner, audit_interval=None,
+                    audit_grace=None, audit_strikes=None):
     """Convenience wiring for service.py: build, start, and return a
     PeerScheduler. peer_hashes may be an iterable of 32-hex strings."""
-    scheduler = PeerScheduler(store, peer_hashes, rns_owner)
+    scheduler = PeerScheduler(store, peer_hashes, rns_owner,
+                              audit_interval=audit_interval,
+                              audit_grace=audit_grace,
+                              audit_strikes=audit_strikes)
     scheduler.start()
     return scheduler

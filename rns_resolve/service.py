@@ -645,6 +645,16 @@ class ResolveService:
                      env.get("RESOLVE_SYNC_FROM", "").split(",")
                      if p.strip()]
         self.sync_from = set(sync_from) if sync_from else None
+        # MOFU withholding-audit knobs (see docs/INTEGRATION.md). Bad values
+        # fall back to the module defaults rather than failing startup.
+        def _int_env(name, default):
+            try:
+                return int(env.get(name, "") or default)
+            except ValueError:
+                return default
+        self.audit_interval = _int_env("RESOLVE_AUDIT_INTERVAL", 3600)
+        self.audit_grace = _int_env("RESOLVE_AUDIT_GRACE", 1800)
+        self.audit_strikes = _int_env("RESOLVE_AUDIT_STRIKES", 3)
         self.env = env
 
         self.rns_ready = False
@@ -738,7 +748,10 @@ class ResolveService:
         try:
             from rns_resolve import peers
             self.peer_scheduler = peers.PeerScheduler(
-                self.deps.store, self.peer_hashes, self)
+                self.deps.store, self.peer_hashes, self,
+                audit_interval=self.audit_interval,
+                audit_grace=self.audit_grace,
+                audit_strikes=self.audit_strikes)
             self.peer_scheduler.start()
         except Exception:
             self.peer_scheduler = None

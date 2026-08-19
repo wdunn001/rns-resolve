@@ -718,3 +718,23 @@ class AuditRoundTest(unittest.TestCase):
         s = self._sched({"p1": set()})
         s.audit_peers()
         json.dumps(s.audit_state())
+
+
+class AuditConfigTest(unittest.TestCase):
+    def test_scheduler_honours_overrides(self):
+        class Owner:
+            def get_identity(self):
+                return None
+        s = peers.PeerScheduler(FakeStore(), [], Owner(), audit_interval=7,
+                                audit_grace=11, audit_strikes=1)
+        self.assertEqual(s.audit_interval, 7)
+        self.assertEqual(s.audit_grace, 11)
+        self.assertEqual(s.audit.strikes_required, 1)
+
+    def test_defaults_when_unset(self):
+        class Owner:
+            def get_identity(self):
+                return None
+        s = peers.PeerScheduler(FakeStore(), [], Owner())
+        self.assertEqual(s.audit_interval, peers.AUDIT_INTERVAL)
+        self.assertEqual(s.audit.strikes_required, peers.AUDIT_STRIKES)
