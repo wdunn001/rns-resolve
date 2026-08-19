@@ -40,16 +40,3 @@ whatever a peer holds and we lack is pulled (`sync.fetch`) and validated
 exactly like a push, so one honest holder defeats another's omission. See
 `docs/INTEGRATION.md` for the operator view and the honest limit that two
 resolvers cannot form a majority.
-
-## The judgment call this table encodes
-
-LXMF's extra machinery exists because propagation nodes move **large volumes
-of opaque, unverifiable-by-content messages between strangers**. Every
-deferred row above traces back to that: size budgets, resource transfer,
-throttle tables, batch stamp validation. A name registry moves **tiny,
-self-certifying, individually-verified records between explicitly configured
-peers**. Where the threat model matched (who may sync with me, proof of
-work invested in the peering relationship, identified links), we adopted
-LXMF's mechanism, literally its code, in the stamps case. Where LXMF's
-mechanism serves message-scale transport, we documented the deferral here
-so it is a decision, not an omission.

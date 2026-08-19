@@ -147,7 +147,11 @@ psycopg2 GOTCHA: no literal `%` in SQL text (use %% or avoid).
     `{"id":record_id,"expires":ts+ttl}`. Also `touch_use` each returned
     registered record. If q fails normalization → `{"ok":False,"err":...}`.
   - `{"v":1,"op":"register","name":str,"app":str?,"aspects":list?,
+<<<<<<< HEAD
     "ts":float,"ttl":int?,"sig":bytes}`, REQUIRES identified link
+=======
+    "ts":float,"ttl":int?,"sig":bytes}` REQUIRES an identified link
+>>>>>>> main
     (`link.get_remote_identity()`; if None →
     `{"ok":False,"err":"identify required"}`). Build rec with identity =
     remote identity hash hex; verify sig with the remote Identity; derive
@@ -190,7 +194,12 @@ Flow for `<query>`:
 5. `--pin N` pins candidate N into petnames. Auto-pin ONLY when there is
    exactly one registered candidate and zero announced conflicts.
 6. TOFU: if the name is already pinned and a fresh resolve (forced by
+<<<<<<< HEAD
    `--repin`-less explicit resolve when pinned names skip the network, so only on `--repin`) returns a different hash → print a loud
+=======
+   `--repin`-less explicit resolve when pinned names skip the network,
+   so only on `--repin`) returns a different hash → print a loud
+>>>>>>> main
    `NAME/HASH CHANGED` warning; require `--repin` to overwrite.
 
 `--register NAME`: identify on the link (client identity file at
@@ -270,7 +279,11 @@ Python for pages: self-contained stdlib only (urllib), shebang
 - `docs/INTEGRATION.md`: how a client app adopts resolution (the
   classify/petname/resolver/TOFU order), the trust invariants, MeshChat
   notes (its CustomDestinationDisplayName table is the petname template;
+<<<<<<< HEAD
   its parse site NOT yet located, verify before assuming), and the
+=======
+  its parse site NOT yet located, so verify before assuming), and the
+>>>>>>> main
   resolver-operator guide (env vars, ports, peering).
 - `README.md` (repo root): what/why (naming for Reticulum without a
   registrar), the trust model, quickstart for users (client) and operators
