@@ -50,6 +50,40 @@ Four rules, all enforced in code:
 
 Names are petnames with gossip, not property.
 
+## Try it against a live resolver
+
+Two independent resolvers run on the public mesh and replicate signed
+records to each other. To reach them, your Reticulum config needs a route
+onto that mesh; a public entry point is `rns.quasarke.net` on port `4965`
+(a plain `TCPClientInterface`). Any other route works too, these are
+ordinary destinations.
+
+```sh
+pip install rns
+git clone https://github.com/wdunn001/rns-resolve && cd rns-resolve
+
+# Resolver A (also serves announce-heard candidates from a crawler index):
+export RESOLVE_RESOLVER=5f382b5d0f73a8e35adce587ef7f05f0
+# Resolver B, its independent replica, if you would rather ask a second one:
+#   ca8751d6d24dcab3a7175264641954a5
+
+# A name registered by its owner at node setup:
+python -m rns_resolve rns-resolve
+
+# A name nobody registered: you get announce-heard candidates with evidence
+# (trust, last seen, reachability) and pick one yourself:
+python -m rns_resolve beacon
+```
+
+The first returns a registered record whose target was derived from the
+registrant's own identity, and pins it. The second shows why answers are
+candidates rather than truth. Nothing here is special to these resolvers:
+run your own and point `RESOLVE_RESOLVER` at it instead.
+
+The same resolvers back a NomadNet node you can browse without any client
+install, at `3435a207cc2d43cd7ea979e78e89dc16` (lookup on `/page/index.mu`,
+registration on `/page/register.mu`, documentation on `/page/docs.mu`).
+
 ## Quickstart: users (client)
 
 Requires Python 3.11+, `rns`, and a working Reticulum config of your own.
