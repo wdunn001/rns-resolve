@@ -60,6 +60,8 @@ destination input:
 | `RESOLVE_HEALTH_PORT` | `8225` | binds 0.0.0.0; `GET /healthz` returns JSON status, HTTP 200 when RNS is ready, else 503 |
 | `RESOLVE_PRIVATE_PORT` | `8226` | binds 127.0.0.1 ONLY; JSON API (`GET /resolve`, `POST /register`, `POST /unregister`) for colocated NomadNet exec pages. Never expose this port off-host: records created here are resolver-attested on your resolver's say-so |
 | `RESOLVE_PEERS` | empty | comma-separated destination hashes of peer resolvers; empty disables replication |
+| `RESOLVE_PEERING_COST` | `18` | inbound sync peering-key cost, enforced with LXMF's own `LXStamper` (same key material and workblock as LXMPeer; default mirrors `LXMRouter.PEERING_COST`). `0` disables stamping. Senders self-negotiate: a keyless offer is answered with the cost and retried once with a generated key. See `docs/LXMPEER-GAPS.md` |
+| `RESOLVE_SYNC_FROM` | empty | comma-separated IDENTITY hashes allowed to sync inbound (the `from_static_only` equivalent); empty = open peering |
 | `BEACON_DB_HOST/PORT/NAME/USER/PASSWORD` | unset | optional read-only Postgres source of announce-observed names; absent or unreachable degrades announced candidates to empty, service stays up |
 
 Backends always come from environment variables. Never bake addresses into

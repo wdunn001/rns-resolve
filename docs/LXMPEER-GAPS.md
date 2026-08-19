@@ -1,0 +1,38 @@
+# LXMPeer/LXMRouter vs rns-resolve replication: the full accounting
+
+rns-resolve's `peers.py` is shaped after LXMF's propagation-node sync
+(`LXMF/LXMPeer.py`, `LXMF/LXMRouter.py`), which is the battle-tested
+anti-entropy replication that already runs on this network. This document
+enumerates every mechanism the LXMF implementation carries, states what
+rns-resolve does about each one, and why — so nothing LXMF does for a
+reason is dropped by accident. Line references are against LXMF as of
+2026-08 (`pip install lxmf`).
+
+| LXMF mechanism | Where in LXMF | rns-resolve status | Rationale |
+| --- | --- | --- | --- |
+| Offer/want ID diff (offer only fixed-width ids; receiver returns the missing subset; content moves only after agreement) | `LXMPeer.sync()`, `LXMRouter.offer_request()` | **Adopted** (`sync.offer` -> `want` -> `sync.push`) | The core efficiency property; identical shape, keyed on `record_id` instead of `transient_id`. |
+| Identified link required for sync | `offer_request`: `ERROR_NO_IDENTITY` | **Adopted** (when peering cost > 0) | Stamps and allowlists both key on the remote identity. |
+| Peering key (LXStamper cost stamp per peer pair) | `LXMPeer.generate_peering_key()` (key material = `peer_identity.hash + own_identity.hash`), `LXMRouter.offer_request()` (`validate_peering_key(self.identity.hash + remote_identity.hash, key, cost)`) | **Adopted by importing LXMF's own `LXStamper`** — same key material, same `WORKBLOCK_EXPAND_ROUNDS_PEERING` (25), same default cost (`PEERING_COST = 18`) | Reusing their implementation rather than reimplementing means their audit is our audit. Env `RESOLVE_PEERING_COST` (0 disables). |
+| Cost advertisement in announces (peers learn the target cost passively) | `LXMRouter` announce app_data (`[stamp_cost, flexibility, peering_cost]`) | **Adapted**: cost self-negotiation — a keyless offer is answered with `{"err": "peering key required", "cost": N}`; the sender generates a key at N and retries once | Avoids changing our announce format; mirrors LXMPeer's regenerate-on-cost-mismatch behavior with one extra round trip on first contact only. |
+| Per-link validation caching (`validated_peer_links[link_id]`) | `offer_request` | **Diverged, deliberately**: the key is validated on every sync op | Validation is one cheap 25-round workblock; our handler is stateless by design. Revisit if profiling ever shows it matters. |
+| Per-message stamp value threshold (`min_accepted_cost`, `stamp_value`) | `LXMRouter` propagation stamps | **Not applicable, replaced** | LXMF needs per-message spam cost because messages are arbitrary content from arbitrary senders. Our records are identity-signed, target-derived, and TTL-leased; the per-record cost is already cryptographic (signature + ownership derivation), so a work stamp per record adds nothing. |
+| `from_static_only` / `static_peers` access dial | `offer_request` | **Adopted** as `RESOLVE_SYNC_FROM` (comma-separated identity hashes; empty = open) | Same open-vs-allowlist posture. |
+| Inbound sync throttling (`max_inbound_syncs`, `ERROR_THROTTLED`, `throttled_peers` backoff table, sequential validation postponement) | `offer_request` | **Partially covered, partially deferred**: the service's per-identity rate limiter (30 req/min) plus hard payload caps (`MAX_OFFER_IDS` 5000, `MAX_PUSH_RECORDS` 500) bound inbound work; the dedicated throttled-peers table and concurrent-sync counting are deferred | LXMF throttles because propagation syncs move megabytes of messages over `RNS.Resource` and stamp validation of large batches is expensive. Our syncs are small request/response payloads of tiny records; the general rate limiter bounds them. Add the dedicated table when record volume justifies it. |
+| `RNS.Resource` bulk transfer for accepted content | `LXMPeer.sync()` resource path, `LXMRouter` propagation resources | **Deferred** — records travel in the `sync.push` request payload | A name record is a few hundred bytes; batches are capped at 500. Resource transfer earns its complexity at message-store sizes, not here. The `want`-then-push shape is preserved, so swapping the transport later does not change the protocol. |
+| Weight-sorted offers within a size budget (`propagation_sync_limit`) | `LXMPeer.sync()` | **Deferred** (offers are complete id lists, capped) | Registries are small; a full offer fits comfortably. The cap prevents abuse until a budget/paging scheme is needed. |
+| Peer scheduling: prefer fast peers (`sync_transfer_rate`), probe unresponsive, cull after 14 days unless static | `LXMRouter.sync_peers()` | **Partially adopted**: fixed interval + exponential backoff to 4h on failure; no rate preference, no culling | With `RESOLVE_PEERS` as an explicit operator-set list, every peer is effectively "static" and culling would fight the operator's intent. Revisit when peer discovery becomes automatic. |
+| Peer persistence across restarts (peers serialized with peering keys) | `LXMPeer.to_dict/from_dict` | **Diverged**: peer list from env; peering keys regenerated in memory | A 25-round peering key is trivial to regenerate at startup; persisting it buys nothing at our scale. |
+| Unpeering / peer removal protocol | `LXMRouter` | **Deferred** | Removing a hash from `RESOLVE_PEERS` and restarting is the operator path for now. |
+
+## The judgment call this table encodes
+
+LXMF's extra machinery exists because propagation nodes move **large volumes
+of opaque, unverifiable-by-content messages between strangers**. Every
+deferred row above traces back to that: size budgets, resource transfer,
+throttle tables, batch stamp validation. A name registry moves **tiny,
+self-certifying, individually-verified records between explicitly configured
+peers**. Where the threat model matched (who may sync with me, proof of
+work invested in the peering relationship, identified links), we adopted
+LXMF's mechanism — literally its code, in the stamps case. Where LXMF's
+mechanism serves message-scale transport, we documented the deferral here
+so it is a decision, not an omission.
