@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 dependencies = ["rns>=0.9"]
 
 [project.optional-dependencies]
-service = ["psycopg2-binary"]
+service = ["psycopg2-binary", "lxmf"]
 
 [project.scripts]
 rns-resolve = "rns_resolve.__main__:main"

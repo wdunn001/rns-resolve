@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-RUN pip install --no-cache-dir rns psycopg2-binary
+RUN pip install --no-cache-dir rns lxmf psycopg2-binary
 
 WORKDIR /app
 COPY rns_resolve /app/rns_resolve

@@ -383,3 +383,177 @@ class TestRnsSeams(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeStamper:
+    """Stub with LXStamper's surface."""
+    WORKBLOCK_EXPAND_ROUNDS_PEERING = 25
+
+    def __init__(self, valid=True, gen_value=99):
+        self.valid = valid
+        self.gen_value = gen_value
+        self.validated = []
+        self.generated = []
+
+    def validate_peering_key(self, peering_id, key, cost):
+        self.validated.append((bytes(peering_id), bytes(key), cost))
+        return self.valid
+
+    def generate_stamp(self, material, cost, expand_rounds=None):
+        self.generated.append((bytes(material), cost, expand_rounds))
+        return b"stamp-key", self.gen_value
+
+
+class FakeIdentity:
+    def __init__(self, h):
+        self.hash = h
+
+
+class SyncGateTest(unittest.TestCase):
+    def setUp(self):
+        self.store = FakeStore()
+        self.stamper = FakeStamper()
+        self._orig = peers._lxstamper
+        peers._lxstamper = lambda: self.stamper
+
+    def tearDown(self):
+        peers._lxstamper = self._orig
+
+    def ctx(self, **kw):
+        base = {"self_identity_hash": b"S" * 16,
+                "peering_cost": 18,
+                "allowed_sync_identities": None,
+                "link_identity": FakeIdentity(b"R" * 16)}
+        base.update(kw)
+        return base
+
+    def test_cost_zero_is_open(self):
+        reply = peers.handle_sync(
+            "sync.offer", {"ids": []}, self.store,
+            self.ctx(peering_cost=0, link_identity=None))
+        self.assertTrue(reply["ok"])
+
+    def test_unidentified_rejected_with_cost(self):
+        reply = peers.handle_sync(
+            "sync.offer", {"ids": []}, self.store, self.ctx(link_identity=None))
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["cost"], 18)
+        self.assertIn("identify", reply["err"])
+
+    def test_missing_key_advertises_cost(self):
+        reply = peers.handle_sync(
+            "sync.offer", {"ids": []}, self.store, self.ctx())
+        self.assertFalse(reply["ok"])
+        self.assertIn("peering key required", reply["err"])
+        self.assertEqual(reply["cost"], 18)
+
+    def test_valid_key_admits_and_uses_lxmf_material_order(self):
+        reply = peers.handle_sync(
+            "sync.offer", {"ids": [], "key": b"k"}, self.store, self.ctx())
+        self.assertTrue(reply["ok"])
+        peering_id, key, cost = self.stamper.validated[0]
+        # LXMF offer_request: self.identity.hash + remote_identity.hash
+        self.assertEqual(peering_id, b"S" * 16 + b"R" * 16)
+        self.assertEqual(cost, 18)
+
+    def test_invalid_key_rejected(self):
+        self.stamper.valid = False
+        reply = peers.handle_sync(
+            "sync.offer", {"ids": [], "key": b"k"}, self.store, self.ctx())
+        self.assertFalse(reply["ok"])
+        self.assertIn("invalid peering key", reply["err"])
+
+    def test_push_gated_too(self):
+        reply = peers.handle_sync(
+            "sync.push", {"records": []}, self.store, self.ctx())
+        self.assertFalse(reply["ok"])
+        self.assertIn("peering key required", reply["err"])
+
+    def test_allowlist_blocks_unknown_identity(self):
+        reply = peers.handle_sync(
+            "sync.offer", {"ids": [], "key": b"k"}, self.store,
+            self.ctx(allowed_sync_identities={"aa" * 16}))
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["err"], "not allowed")
+
+    def test_allowlist_admits_listed_identity(self):
+        rid = (b"R" * 16).hex()
+        reply = peers.handle_sync(
+            "sync.offer", {"ids": [], "key": b"k"}, self.store,
+            self.ctx(allowed_sync_identities={rid}))
+        self.assertTrue(reply["ok"])
+
+    def test_offer_size_cap(self):
+        ids = ["x" * 32] * (peers.MAX_OFFER_IDS + 1)
+        reply = peers.handle_sync(
+            "sync.offer", {"ids": ids, "key": b"k"}, self.store, self.ctx())
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["err"], "offer too large")
+
+    def test_push_size_cap(self):
+        recs = [{}] * (peers.MAX_PUSH_RECORDS + 1)
+        reply = peers.handle_sync(
+            "sync.push", {"records": recs, "key": b"k"}, self.store, self.ctx())
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["err"], "push too large")
+
+    def test_stamps_unavailable_when_lxmf_missing(self):
+        peers._lxstamper = lambda: None
+        reply = peers.handle_sync(
+            "sync.offer", {"ids": [], "key": b"k"}, self.store, self.ctx())
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["err"], "stamps unavailable")
+
+
+class PeeringKeyNegotiationTest(unittest.TestCase):
+    def setUp(self):
+        self.stamper = FakeStamper(gen_value=20)
+        self._orig = peers._lxstamper
+        peers._lxstamper = lambda: self.stamper
+
+    def tearDown(self):
+        peers._lxstamper = self._orig
+
+    def _scheduler(self):
+        class Owner:
+            def get_identity(self):
+                return FakeIdentity(b"O" * 16)
+        sched = peers.PeerScheduler(FakeStore(), ["ab" * 16], Owner())
+        sched._peer_identity_hash = lambda peer_hex: b"P" * 16
+        return sched
+
+    def test_ensure_key_uses_lxmpeer_material_order_and_caches(self):
+        sched = self._scheduler()
+        key = sched._ensure_peering_key("ab" * 16, 18)
+        self.assertEqual(key, b"stamp-key")
+        material, cost, rounds = self.stamper.generated[0]
+        # LXMPeer.generate_peering_key: peer_identity.hash + own_identity.hash
+        self.assertEqual(material, b"P" * 16 + b"O" * 16)
+        self.assertEqual(cost, 18)
+        self.assertEqual(rounds, 25)
+        # Cached: second call generates nothing new.
+        sched._ensure_peering_key("ab" * 16, 18)
+        self.assertEqual(len(self.stamper.generated), 1)
+
+    def test_underweight_key_not_cached(self):
+        self.stamper.gen_value = 5
+        sched = self._scheduler()
+        self.assertIsNone(sched._ensure_peering_key("ab" * 16, 18))
+
+    def test_offer_retry_on_cost_advert(self):
+        sched = self._scheduler()
+        replies = [
+            {"ok": False, "err": "peering key required", "cost": 18},
+            {"ok": True, "want": []},
+        ]
+        sent = []
+        sched._open_link = lambda h: object()
+        sched._close_link = lambda l: None
+        def fake_request(link, payload):
+            sent.append(dict(payload))
+            return replies[len(sent) - 1]
+        sched._request = fake_request
+        result = sched.sync_peer("ab" * 16)
+        self.assertTrue(result["ok"])
+        self.assertNotIn("key", sent[0])
+        self.assertEqual(sent[1]["key"], b"stamp-key")

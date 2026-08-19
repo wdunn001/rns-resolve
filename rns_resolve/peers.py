@@ -55,6 +55,19 @@ def _verify_standalone(rec):
     return records.verify_record_standalone(rec)
 
 
+def _lxstamper():
+    """LXMF's LXStamper module, or None. We import LXMF's implementation
+    rather than reimplementing it: same workblock construction, same
+    peering-key semantics (key material = receiver_identity.hash +
+    sender_identity.hash, WORKBLOCK_EXPAND_ROUNDS_PEERING), so an audit of
+    LXMF's stamps is an audit of ours."""
+    try:
+        from LXMF import LXStamper
+        return LXStamper
+    except Exception:
+        return None
+
+
 def _recall_identity(identity_hash_hex):
     """Recall a known RNS Identity by its hash. None if unknown."""
     import RNS
@@ -69,22 +82,87 @@ def _recall_identity(identity_hash_hex):
 # ---------------------------------------------------------------------------
 
 
-def handle_sync(op, payload, store):
+# Mirrors LXMRouter.PEERING_COST / MAX_PEERING_COST.
+DEFAULT_PEERING_COST = 18
+MAX_PEERING_COST = 26
+# Cheap DoS guards on sync payload sizes (LXMF budgets sync sizes via
+# propagation_sync_limit; ours are simple hard caps).
+MAX_OFFER_IDS = 5000
+MAX_PUSH_RECORDS = 500
+
+
+def _sync_gate(payload, ctx):
+    """Shared admission checks for sync ops. Returns an error reply dict,
+    or None when the caller may proceed. Semantics follow LXMF's
+    offer_request: identified link required, per-pair peering key validated
+    at the receiver's advertised cost. Divergence from LXMF (documented in
+    docs/LXMPEER-GAPS.md): we validate the key on every sync op instead of
+    caching per-link validation state, because validation is one cheap
+    25-round workblock and our handler is deliberately stateless."""
+    ctx = ctx or {}
+    cost = int(ctx.get("peering_cost") or 0)
+    link_identity = ctx.get("link_identity")
+    allowed = ctx.get("allowed_sync_identities")
+
+    if allowed is not None:
+        rid = None
+        try:
+            rid = link_identity.hash.hex()
+        except Exception:
+            pass
+        if rid is None or rid not in allowed:
+            return {"ok": False, "err": "not allowed"}
+
+    if cost <= 0:
+        return None
+
+    if link_identity is None:
+        return {"ok": False, "err": "identify required", "cost": cost}
+    stamper = _lxstamper()
+    if stamper is None:
+        return {"ok": False, "err": "stamps unavailable"}
+    key = payload.get("key")
+    if not isinstance(key, (bytes, bytearray)):
+        return {"ok": False, "err": "peering key required", "cost": cost}
+    self_hash = ctx.get("self_identity_hash")
+    try:
+        peering_id = bytes(self_hash) + bytes(link_identity.hash)
+    except Exception:
+        return {"ok": False, "err": "stamps unavailable"}
+    if not stamper.validate_peering_key(peering_id, bytes(key), cost):
+        return {"ok": False, "err": "invalid peering key", "cost": cost}
+    return None
+
+
+def handle_sync(op, payload, store, ctx=None):
     """Handle a sync op. Returns a reply dict, or None if op is not a
-    sync op. Pure function apart from store access."""
+    sync op. Pure function apart from store access. ctx (optional) carries
+    the admission context built by the service: link_identity,
+    self_identity_hash (bytes), peering_cost (int, 0 = open),
+    allowed_sync_identities (set of hex identity hashes, None = open)."""
 
     if op == "sync.offer":
+        gate = _sync_gate(payload, ctx)
+        if gate is not None:
+            return gate
         ids = payload.get("ids")
         if not isinstance(ids, list):
             return {"ok": False, "err": "bad offer"}
+        if len(ids) > MAX_OFFER_IDS:
+            return {"ok": False, "err": "offer too large"}
         clean = [i for i in ids if isinstance(i, str)]
         want = store.missing(clean)
         return {"ok": True, "want": want}
 
     if op == "sync.push":
+        gate = _sync_gate(payload, ctx)
+        if gate is not None:
+            return gate
         recs = payload.get("records")
         if not isinstance(recs, list):
             return {"ok": False, "err": "bad push"}
+        if len(recs) > MAX_PUSH_RECORDS:
+            return {"ok": False, "err": "push too large"}
         accepted = 0
         rejected = 0
         for rec in recs:
@@ -155,6 +233,9 @@ class PeerScheduler:
         self._thread = None
         self._interval = {h: SYNC_INTERVAL for h in self.peer_hashes}
         self._next_due = {h: time.time() for h in self.peer_hashes}
+        # Per-peer peering keys, LXMPeer-style: {peer_hex: (key, value, cost)}.
+        # Cheap to regenerate (25-round workblock), so memory-only.
+        self._peer_keys = {}
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -217,8 +298,25 @@ class PeerScheduler:
                 self._note_failure(hash_hex)
                 return result
 
-            offer_reply = self._request(
-                link, {"v": 1, "op": "sync.offer", "ids": ids})
+            offer = {"v": 1, "op": "sync.offer", "ids": ids}
+            key = self._cached_key(hash_hex)
+            if key is not None:
+                offer["key"] = key
+            offer_reply = self._request(link, offer)
+
+            # Cost self-negotiation, mirroring LXMPeer's regenerate-on-
+            # mismatch: a stamped-peering resolver answers a keyless or
+            # underweight offer with its cost; we generate a key for that
+            # cost and retry once.
+            if (isinstance(offer_reply, dict) and not offer_reply.get("ok")
+                    and "peering key" in str(offer_reply.get("err", ""))
+                    and offer_reply.get("cost")):
+                key = self._ensure_peering_key(
+                    hash_hex, int(offer_reply["cost"]))
+                if key is not None:
+                    offer["key"] = key
+                    offer_reply = self._request(link, offer)
+
             if not isinstance(offer_reply, dict) or not offer_reply.get("ok"):
                 self._note_failure(hash_hex)
                 return result
@@ -231,8 +329,10 @@ class PeerScheduler:
                 recs = [r for r in recs if r.get("sig") is not None]
                 result["pushed"] = len(recs)
                 if recs:
-                    push_reply = self._request(
-                        link, {"v": 1, "op": "sync.push", "records": recs})
+                    push = {"v": 1, "op": "sync.push", "records": recs}
+                    if offer.get("key") is not None:
+                        push["key"] = offer["key"]
+                    push_reply = self._request(link, push)
                     if (not isinstance(push_reply, dict)
                             or not push_reply.get("ok")):
                         self._note_failure(hash_hex)
@@ -249,6 +349,52 @@ class PeerScheduler:
         finally:
             if link is not None:
                 self._close_link(link)
+
+    # -- peering keys (LXMPeer semantics via LXMF's own LXStamper) ---------
+
+    def _own_identity(self):
+        try:
+            get = getattr(self.rns_owner, "get_identity", None)
+            return get() if get else None
+        except Exception:
+            return None
+
+    def _cached_key(self, peer_hex):
+        entry = self._peer_keys.get(peer_hex)
+        return entry[0] if entry else None
+
+    def _ensure_peering_key(self, peer_hex, cost):
+        """Generate (or reuse) a peering key for this peer at this cost.
+        Key material = peer_identity.hash + own_identity.hash, exactly as
+        LXMPeer.generate_peering_key builds it. Returns key bytes or None."""
+        entry = self._peer_keys.get(peer_hex)
+        if entry and entry[2] >= cost and entry[1] >= cost:
+            return entry[0]
+        stamper = _lxstamper()
+        own = self._own_identity()
+        if stamper is None or own is None:
+            return None
+        peer_identity_hash = self._peer_identity_hash(peer_hex)
+        if peer_identity_hash is None:
+            return None
+        try:
+            key, value = stamper.generate_stamp(
+                peer_identity_hash + own.hash, cost,
+                expand_rounds=stamper.WORKBLOCK_EXPAND_ROUNDS_PEERING)
+        except Exception:
+            return None
+        if not key or value < cost:
+            return None
+        self._peer_keys[peer_hex] = (key, value, cost)
+        return key
+
+    def _peer_identity_hash(self, peer_hex):
+        try:
+            import RNS
+            identity = RNS.Identity.recall(bytes.fromhex(peer_hex))
+            return identity.hash if identity else None
+        except Exception:
+            return None
 
     # -- RNS seams (stubbed in tests) --------------------------------------
 
@@ -277,6 +423,14 @@ class PeerScheduler:
             time.sleep(0.2)
         if link.status != RNS.Link.ACTIVE:
             return None
+        # Identify so the peer can gate syncs (stamps and allowlists both
+        # key on the remote identity, as in LXMF's offer_request).
+        own = self._own_identity()
+        if own is not None:
+            try:
+                link.identify(own)
+            except Exception:
+                pass
         return link
 
     def _request(self, link, payload):

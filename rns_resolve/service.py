@@ -161,9 +161,10 @@ class Deps:
     rate limiter and the peers.handle_sync callable (or None)."""
 
     def __init__(self, store=None, beacon=None, manifest=None,
-                 rate_limiter=None, sync_handler=_UNSET):
+                 rate_limiter=None, sync_handler=_UNSET, sync_ctx=None):
         self.store = store
         self.beacon = beacon
+        self.sync_ctx = sync_ctx or {}
         self.manifest = manifest if manifest is not None else build_manifest()
         self.rate_limiter = (rate_limiter if rate_limiter is not None
                              else RateLimiter())
@@ -345,10 +346,16 @@ def op_whois(payload, deps):
             "announced": announced}
 
 
-def op_sync(op, payload, deps):
+def op_sync(op, payload, deps, link_identity=None):
     if deps.sync_handler is None:
         return _err("sync disabled")
-    reply = deps.sync_handler(op, payload, deps.store)
+    ctx = dict(getattr(deps, "sync_ctx", None) or {})
+    ctx["link_identity"] = link_identity
+    try:
+        reply = deps.sync_handler(op, payload, deps.store, ctx)
+    except TypeError:
+        # Back-compat with 3-arg sync handlers (pre-stamp fakes/forks).
+        reply = deps.sync_handler(op, payload, deps.store)
     if reply is None:
         return _err("unknown op")
     return reply
@@ -395,7 +402,7 @@ def _handle_request_dict(payload_bytes, link_identity, deps):
     if op == "whois":
         return op_whois(payload, deps)
     if op.startswith("sync."):
-        return op_sync(op, payload, deps)
+        return op_sync(op, payload, deps, link_identity)
     return _err("unknown op")
 
 
@@ -580,6 +587,18 @@ class ResolveService:
         self.peer_hashes = [p.strip() for p in
                             env.get("RESOLVE_PEERS", "").split(",")
                             if p.strip()]
+        # Peering cost for inbound syncs (LXMF LXStamper peering keys).
+        # Default mirrors LXMRouter.PEERING_COST; 0 disables stamping.
+        try:
+            self.peering_cost = int(env.get("RESOLVE_PEERING_COST", "18"))
+        except ValueError:
+            self.peering_cost = 18
+        # Optional inbound sync allowlist of identity hashes (hex), the
+        # from_static_only equivalent. Empty = open peering.
+        sync_from = [p.strip().lower() for p in
+                     env.get("RESOLVE_SYNC_FROM", "").split(",")
+                     if p.strip()]
+        self.sync_from = set(sync_from) if sync_from else None
         self.env = env
 
         self.rns_ready = False
@@ -618,10 +637,20 @@ class ResolveService:
             identity.to_file(path)
         return identity
 
+    def get_identity(self):
+        """The resolver's own identity (PeerScheduler identifies with it)."""
+        return self.identity
+
     def _start_rns(self):
         import RNS
         self.reticulum = RNS.Reticulum(configdir=self.rns_configdir)
         self.identity = self._load_identity()
+        if self.deps is not None:
+            self.deps.sync_ctx = {
+                "self_identity_hash": bytes(self.identity.hash),
+                "peering_cost": self.peering_cost,
+                "allowed_sync_identities": self.sync_from,
+            }
         self.destination = RNS.Destination(
             self.identity, RNS.Destination.IN, RNS.Destination.SINGLE,
             APP_NAME, ASPECT)
