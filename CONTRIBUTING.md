@@ -26,6 +26,9 @@ negotiable.
    the wire format, the record canonical form, or replication behaviour, say so
    explicitly, because those affect every deployed resolver.
 
+Pull requests are the path for now. Patch files sent over the mesh, the way
+some Reticulum projects accept contributions, are not wired up here yet.
+
 ## Deploy-coupled changes
 
 Two rules exist because of how this is deployed, and both have bitten already:
@@ -39,30 +42,81 @@ Two rules exist because of how this is deployed, and both have bitten already:
 
 ## Generative AI policy
 
-You may use generative AI tools when contributing, on the condition that your
-setup actually supplies the model with enough context to produce sound work and
-your provider does not train on the code. Read
-[Reticulum Zen](https://reticulum.network/manual/zen.html) and the
-[Reticulum License](https://reticulum.network/manual/license.html). Vague
-prompts and thin context produce wrong or generic changes, and that burden is
-on the contributor, not the reviewers.
+You may use generative AI here. The maintainer does, and says so in `AUTHORS`.
+What follows is what we expect of anyone who does, contributor or maintainer.
 
-You must disclose AI usage in the pull request body or the commit message:
-state which tools or services you used in a material way for that change (model
-or product name, and whether it was local or cloud). If a change was written
-without meaningful AI assistance, say so briefly. This lets reviewers judge
-scope and provenance. It does not replace your own review and testing.
+### The failure mode we actually care about
 
-We prefer models that run locally or offline when that is practical for you.
+In most projects the risk from an underinformed model is wrong or generic code
+that a reviewer spots quickly. In this one the risk is narrower and worse: a
+model that has not read the trust boundary will write something that looks
+helpful and quietly removes a guarantee. The two we see attempted most often:
 
-Contributions must still be yours to justify and maintain. Do not submit
-bulk-generated changes you have not read, understood, and tested. We are not
-looking for unreviewed AI output or style-only churn from tools used without
-engineering judgment.
+- adding a resolver lookup as a fallback when a destination hash times out,
+  which hands a resolver the power to override an address the user typed,
+- accepting a target from the request body on `register` instead of deriving it
+  from the caller's identity, which lets anyone register a name pointing
+  anywhere.
 
-Agents working in this repository start at [AGENTS.md](AGENTS.md), which points
-at `.agents/`. `CLAUDE.md` and `.cursor/rules/` exist so tools find that same
-guidance instead of inventing their own.
+Both read as reasonable improvements in isolation. Both destroy the design.
+That is why context is a requirement here and not a suggestion.
+
+### Give the model the context this repo already ships
+
+Point your tool at the guidance in the repository before it writes anything:
+`AGENTS.md` is the entry, `.agents/overview.md` carries the architecture and
+the invariants, `.agents/conventions/` carries the standards per surface, and
+`.agents/skills/` carries the task guides. `CLAUDE.md` and `.cursor/rules/`
+exist so specific tools find that same tree instead of inventing their own
+rules. A model working from the diff alone does not have enough to be safe in
+this codebase.
+
+### Route work by complexity, not by habit
+
+Not every task deserves a frontier model, and using one for everything is both
+wasteful and slower than it looks.
+
+- **Mechanical, high-volume work** belongs on a local or open-weight model:
+  summarizing a long log, skimming a document for one fact, classifying many
+  short items, extracting a snippet by signature, computing embeddings. The
+  answer does not depend on judgment, so a small model close to your machine
+  is the right tool.
+- **Judgment work** stays with the strongest model you have, loaded with the
+  context above: anything touching the trust boundary, replication, the record
+  format, or the shape of a public API. So does prose a reader will see.
+- **Work that needs the conversation's own context** cannot be delegated at
+  all, because the delegate does not have it.
+
+The maintainer runs this as a small registry of delegates that records what
+each local resource has actually succeeded at, per capability, with a success
+rate. Routing is a lookup rather than a guess, and a delegate with no track
+record on a capability does not get the job. You do not need that machinery to
+contribute, but the principle holds when you decide what to hand to which
+model: match the tool to the complexity, and prefer local or open-weight models
+where they are good enough.
+
+### Disclosure
+
+Say in the pull request body or a commit trailer which tools or services you
+used in a material way, naming the model or product and whether it ran locally
+or in the cloud. If a change was written without meaningful AI assistance, one
+line saying so is enough. This is so reviewers can judge scope and provenance.
+It is not a substitute for reading, testing, and being able to defend the
+change yourself.
+
+Prefer providers that do not train on your code. Prefer local or open-weight
+models when they are practical for the task.
+
+### What we will send back
+
+Bulk-generated changes the author has not read, understood, and tested. Style
+churn from a tool run without engineering judgment. A change that removes or
+weakens a trust gate, no matter how well argued the summary is.
+
+## Reporting a vulnerability
+
+See `SECURITY.md`. Do not open a public issue for an unfixed vulnerability in
+name resolution, record verification, or replication.
 
 ## Licensing of contributions
 

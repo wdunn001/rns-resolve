@@ -1,0 +1,55 @@
+name: Bug report
+description: Something resolves wrong, fails to replicate, or crashes
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a way to make a client accept an address it was not given, or to
+        register a name for a destination you do not own, report it privately instead:
+        https://github.com/wdunn001/rns-resolve/security/advisories/new
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "0.1.0, or the commit you are running"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which part
+      options:
+        - Client (petnames, classify, resolve)
+        - Resolver service
+        - Peer replication or the withholding audit
+        - NomadNet node pages
+        - Operator dashboard
+        - Packaging or install
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got. Include the exact name or hash you queried where that is safe to share.
+    validations:
+      required: true
+
+  - type: textarea
+    id: resolvers
+    attributes:
+      label: Resolver setup
+      description: One resolver or several, peered or not, Beacon source configured or not, and whether the record involved was signed or attested.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Health output, container logs, or the client's reply. Redact identity material.
+      render: text

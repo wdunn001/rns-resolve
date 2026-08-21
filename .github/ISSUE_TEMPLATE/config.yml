@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/wdunn001/rns-resolve/blob/main/CONTRIBUTING.md
+    about: How to send a change, the trust boundaries to read first, and the AI disclosure policy
+  - name: Report a vulnerability privately
+    url: https://github.com/wdunn001/rns-resolve/security/advisories/new
+    about: Name resolution, record verification or replication flaws. Never open a public issue for these.
