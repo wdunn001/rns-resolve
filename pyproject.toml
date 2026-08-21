@@ -10,7 +10,7 @@ dependencies = ["rns>=0.9"]
 
 [project.optional-dependencies]
 service = ["psycopg2-binary", "lxmf"]
-admin = ["fastapi", "uvicorn", "jinja2", "pydantic>=2"]
+admin = ["fastapi", "uvicorn", "jinja2", "pydantic>=2", "python-multipart"]
 
 [project.scripts]
 rns-resolve = "rns_resolve.__main__:main"
