@@ -41,6 +41,41 @@ theirs, which is why peering stamps use LXMF's `LXStamper` directly.
   answers. An unreachable peer means backoff, not a crash.
 - Never let an operator or diagnostic path change resolution behaviour.
 
+## Route work by complexity
+
+Not every step of a task deserves the model reading this. Decide where a piece
+of work belongs before doing it, and prefer the smallest tool that is good
+enough.
+
+**Delegate the mechanical work.** Summarizing a long log, skimming a document
+for one fact, classifying many short items, pulling a snippet out of a large
+file by signature, computing embeddings for a batch. The value there is
+throughput, not judgment, so it belongs on a local or open-weight model rather
+than in this context window. Named capabilities to route by:
+`bulk-summarization`, `log-skim`, `doc-skim`, `yes-no-classification`,
+`code-snippet-extraction`, `embedding`, `shell-exec-bulk`.
+
+**Keep the judgment work.** Anything touching the trust boundary, the record
+format, replication, or a public API shape. Design decisions and their
+tradeoffs. Prose a reader will see. Reviewing whether a change is safe. These
+are exactly the places where a cheap answer that looks right costs the most,
+and `.agents/skills/trust-invariants/SKILL.md` exists because that failure has
+a specific shape here.
+
+**Do not delegate what needs this conversation.** A delegate does not have the
+session's context, so anything that depends on what was decided ten steps ago
+has to stay here.
+
+**Route on evidence, not on vibes.** Where a delegate registry is available,
+pick by what a resource has actually succeeded at for that capability, and log
+the outcome afterwards so the next decision is better informed. A resource with
+no track record on a capability does not get a job that matters. When nothing
+qualifies, do it here rather than gambling: a failed delegation costs more than
+the work it avoided.
+
+The same rule scales down. Reading three files to answer a question is not a
+reason to spawn anything; reading three hundred is.
+
 ## Prose
 
 Before writing or editing prose, read `.agents/skills/no-ai-slop/SKILL.md` and

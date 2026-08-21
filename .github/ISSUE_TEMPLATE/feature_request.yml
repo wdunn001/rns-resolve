@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a change to how naming works here
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `.agents/conventions/reticulum-zen.md` and
+        `.agents/skills/trust-invariants/SKILL.md` first. Proposals that need a root
+        zone, a registry, a single naming authority, or a resolver fallback for a
+        destination hash are declined by design, and the second file explains why.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What does someone fail to do today? Concrete case, not a category.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposal
+    validations:
+      required: true
+
+  - type: textarea
+    id: trust
+    attributes:
+      label: Trust impact
+      description: Could a hostile resolver use this to make a client accept an address the user did not choose? Does it introduce a party everyone must trust? Is it still honest when two resolvers disagree?
+    validations:
+      required: true
+
+  - type: textarea
+    id: partition
+    attributes:
+      label: Behaviour when partitioned
+      description: What happens when the network is split and half the peers are gone?

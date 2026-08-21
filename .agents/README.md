@@ -14,6 +14,11 @@ This tree is not user documentation. User and operator docs are `README.md`,
 6. [skills/no-ai-slop/SKILL.md](skills/no-ai-slop/SKILL.md) before writing or editing prose (docs, page copy, commit messages longer than a sentence).
 
 Root [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) point here.
+Contribution rules, the AI disclosure policy and how work is routed by
+complexity: [CONTRIBUTING.md](../CONTRIBUTING.md) and the "Route work by
+complexity" section of [conventions/core.md](conventions/core.md). Security
+reporting and what counts as a vulnerability here:
+[SECURITY.md](../SECURITY.md).
 Editor rules mirroring this tree live under [.cursor/rules/](../.cursor/rules/):
 always-on core standards and Reticulum Zen gates, plus globbed rules for the
 service package, the dashboard, and tests.
