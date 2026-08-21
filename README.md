@@ -142,12 +142,34 @@ Key environment variables (full list in `docs/INTEGRATION.md`):
 A `deploy/` directory with a container setup and NomadNet exec pages
 (`pages/`) for lookup and attested registration is included.
 
+## Operator dashboard
+
+`rns_resolve.admin` is a web dashboard and management page for whoever runs
+resolvers: record inventory with filters and deletion, per-peer replication
+state with sync, announce and audit actions, request metrics, and a lookup tool
+that shows what a client would actually get for a name. It is a separate
+process that reads resolvers' loopback APIs, so it holds no state of its own
+and one dashboard can front several resolvers.
+
+```
+pip install 'rns-resolve[admin]'
+RESOLVE_ADMIN_RESOLVERS='A=http://127.0.0.1:8225' python -m rns_resolve.admin
+```
+
+See `docs/ADMIN.md` for the endpoints it consumes, the two access gates, and
+the configuration knobs.
+
 ## Integrating into client apps
 
 See `docs/INTEGRATION.md` for the adoption order (classify, petnames,
 resolver, TOFU), the trust invariants your integration must keep, a patch
 for the NomadNet browser (`patches/nomadnet-browser-resolve.patch`), and
 notes on MeshChat.
+
+## Contributing
+
+See `CONTRIBUTING.md`, including the AI disclosure policy. Automated agents
+start at `AGENTS.md`, which points at the guidance under `.agents/`.
 
 ## License
 

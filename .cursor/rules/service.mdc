@@ -1,0 +1,16 @@
+---
+description: Resolver service, store, records and peer replication.
+globs: rns_resolve/service.py,rns_resolve/store.py,rns_resolve/records.py,rns_resolve/peers.py,rns_resolve/beacon_source.py,rns_resolve/client.py,rns_resolve/petnames.py,rns_resolve/nodereg.py
+---
+
+Read `.agents/conventions/service.md`. For replication work also read
+`.agents/skills/peer-replication/SKILL.md`.
+
+Handlers are pure functions taking `(payload, deps)` and returning a dict; they
+never raise across the wire. All SQL lives in `store.py`. RNS is reached only
+through the existing seams so tests need no sockets. Every op except
+`__manifest__` requires `v == 1`. Signature verification is standalone first
+(embedded pubkey, hash-bound to the identity field) then `Identity.recall`;
+`Identity.load_public_key` returns None on success, so judge by `ident.hash`.
+Peer-facing queries exclude attested records. Degrade rather than fail: no
+Beacon database means registered-only answers.

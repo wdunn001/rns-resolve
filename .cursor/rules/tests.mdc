@@ -1,0 +1,17 @@
+---
+description: Test placement, fakes and oracle style.
+globs: tests/**/*.py
+---
+
+Read `.agents/conventions/tests.md`.
+
+Plain `unittest` classes run under pytest, one file per module, no sockets and
+no RNS. Use the existing seams: `Deps` collaborators, `PeerScheduler._open_link`
+and friends, the injected `fetch` in `admin.ResolverClient`. Optional
+dependencies get `skipUnless` while the logic tests around them still run.
+
+Assert an accept or a reject, never merely that nothing raised. No
+`except Exception: pass`, no checking that a reply has an `ok` key without
+checking its value, no mock that always succeeds under a security oracle.
+Every rejection path on the wire needs a test, and so does every trust
+invariant: changing one should break a named test first.

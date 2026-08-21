@@ -1,0 +1,16 @@
+---
+description: Operator dashboard and the resolver-side /admin surface.
+globs: rns_resolve/admin.py,rns_resolve/admin_templates.py,docs/ADMIN.md,tests/test_admin.py,tests/test_admin_api.py
+---
+
+Read `.agents/conventions/admin.md` and
+`.agents/skills/operator-dashboard/SKILL.md`.
+
+Dependency injection with pydantic settings: `AdminSettings.from_env`,
+`ResolverClient` with an injected `fetch`, `Registry` supplied through FastAPI
+`Depends`. Templates are an in-package DictLoader with autoescaping and must
+stay self-contained: no CDN, no remote asset, it has to work on an isolated
+LAN. Admin endpoints live on the resolver's loopback port only, never on the
+public health port. Access needs loopback or a trusted proxy carrying
+`X-Authentik-Username`. Destructive actions need explicit confirmation and say
+what happened. A dead resolver degrades to an error card, never a broken page.

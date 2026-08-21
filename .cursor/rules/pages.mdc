@@ -1,0 +1,17 @@
+---
+description: NomadNet micron exec pages served by the announced node.
+globs: pages/**,node/**
+---
+
+Read `.agents/skills/nomadnet-pages/SKILL.md`.
+
+Pages are stdlib-only exec scripts and must not import `rns_resolve`. They talk
+to the resolver over loopback HTTP on the private port, which is why the node
+container uses host networking. Exec pages need the executable bit. Inputs
+arrive as `field_*` and `var_*` environment variables.
+
+Micron is not markdown; verify what the wire carries. MeshData head blocks
+appear as literal `#` lines on the wire and are discarded at render, which is
+correct. Registration through a page is attested and never replicates; the
+intended flow is setup-time self-registration via `rns_resolve.nodereg`. Say
+that plainly in any page copy.
