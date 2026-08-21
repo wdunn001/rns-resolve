@@ -1,0 +1,19 @@
+---
+description: Zen of Reticulum gates for mesh-facing design and code. Always on.
+alwaysApply: true
+---
+
+Read `.agents/conventions/reticulum-zen.md` before any mesh-facing design or
+code. Naming is where IP-era assumptions sneak into a mesh, because everyone
+reaches for DNS as the model.
+
+No root zone, no registrar, no single naming authority. Destination hashes are
+identity; names are local labels the user owns. Assume every resolver is
+hostile: a record must be verifiable without trusting whoever served it.
+Announce candidates carry evidence and are never auto-selected for a client.
+Multiple resolvers disagreeing is the design, not a defect.
+
+Before adding a feature, answer: does it work partitioned, can a hostile
+resolver use it to make a client accept an address the user did not choose,
+does it introduce a party everyone must trust, and is it still honest when two
+resolvers disagree?

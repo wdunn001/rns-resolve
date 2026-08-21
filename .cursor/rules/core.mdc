@@ -1,0 +1,22 @@
+---
+description: rns-resolve core standards. Always on.
+alwaysApply: true
+---
+
+Guidance lives in `.agents/`. Read `.agents/overview.md` for architecture,
+ports, invariants and known traps, and `.agents/conventions/core.md` for the
+always-on standards.
+
+Hard rules:
+
+- A resolver is consulted only for input that never matched the 32-hex
+  destination-hash pattern. A hash-shaped query that times out stays a
+  timeout. See `.agents/skills/trust-invariants/SKILL.md`.
+- `register` derives the target from the caller's identity hash. Never accept
+  a caller-supplied target.
+- Attested records (sig NULL) never replicate.
+- Run `py -3 -m pytest tests -q` before claiming a change works.
+- No emojis, no emdashes, no semicolons in comments or docs you write.
+- Minimal diffs, stdlib-first Python, no new dependency without a reason.
+- Do not commit or push unless asked.
+- Before writing prose, read `.agents/skills/no-ai-slop/SKILL.md`.

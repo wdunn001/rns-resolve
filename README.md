@@ -166,6 +166,11 @@ resolver, TOFU), the trust invariants your integration must keep, a patch
 for the NomadNet browser (`patches/nomadnet-browser-resolve.patch`), and
 notes on MeshChat.
 
+## Contributing
+
+See `CONTRIBUTING.md`, including the AI disclosure policy. Automated agents
+start at `AGENTS.md`, which points at the guidance under `.agents/`.
+
 ## License
 
 MIT. See `LICENSE`.
