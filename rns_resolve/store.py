@@ -249,6 +249,48 @@ class Store:
                 "SELECT COUNT(*) FROM records"
             ).fetchone()[0]
 
+    # -- operator (admin) surface ------------------------------------------
+
+    def list_records(self, q=None, limit=200, offset=0,
+                     include_expired=True) -> tuple:
+        """Records newest first with an optional substring filter on name,
+        target or registrant identity. Returns (records, total_matching).
+        Backs the operator dashboard; never used on the resolve path."""
+        where = []
+        args = []
+        if q:
+            like = "%" + str(q).lower() + "%"
+            where.append("(LOWER(name) LIKE ? OR LOWER(target) LIKE ?"
+                         " OR LOWER(identity) LIKE ?)")
+            args.extend([like, like, like])
+        if not include_expired:
+            where.append("ts + ttl > ?")
+            args.append(time.time())
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        limit = max(1, min(int(limit), 5000))
+        offset = max(0, int(offset))
+        with self._lock:
+            total = self._conn.execute(
+                "SELECT COUNT(*) FROM records" + clause, args
+            ).fetchone()[0]
+            rows = self._conn.execute(
+                "SELECT * FROM records" + clause +
+                " ORDER BY ts DESC LIMIT ? OFFSET ?",
+                args + [limit, offset],
+            ).fetchall()
+        return [self._row_to_rec(r) for r in rows], int(total)
+
+    def delete_id(self, record_id: str) -> int:
+        """Operator override: delete ONE record by id regardless of who
+        registered it. Returns the row count (0 or 1). Replication can bring
+        a self-certifying record back from a peer; that is by design and the
+        dashboard says so."""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM records WHERE id=?", (str(record_id),)
+            )
+        return cur.rowcount
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()

@@ -233,6 +233,10 @@ class PeerScheduler:
         self._thread = None
         self._interval = {h: SYNC_INTERVAL for h in self.peer_hashes}
         self._next_due = {h: time.time() for h in self.peer_hashes}
+        # Operator visibility: outcome of the last sync per peer and the last
+        # time each peer accepted a sync (dashboard /admin/status).
+        self._last_sync = {}
+        self._last_ok = {}
         # Per-peer peering keys, LXMPeer-style: {peer_hex: (key, value, cost)}.
         # Cheap to regenerate (25-round workblock), so memory-only.
         self._peer_keys = {}
@@ -259,11 +263,54 @@ class PeerScheduler:
                 if self._stop.is_set():
                     break
                 if now >= self._next_due.get(peer, 0):
-                    try:
-                        self.sync_peer(peer)
-                    except Exception:
-                        self._note_failure(peer)
+                    self._sync_and_record(peer)
             self._stop.wait(30)
+
+    # -- operator surface ---------------------------------------------------
+
+    def _sync_and_record(self, peer):
+        """Run one sync for `peer` and remember how it went."""
+        started = time.time()
+        try:
+            result = self.sync_peer(peer)
+        except Exception as e:  # sync_peer handles its own backoff; be safe
+            self._note_failure(peer)
+            result = {"ok": False, "error": str(e) or e.__class__.__name__}
+        if not isinstance(result, dict):
+            result = {"ok": bool(result)}
+        if result.get("ok"):
+            self._last_ok[peer] = started
+        self._last_sync[peer] = {
+            "at": started,
+            "duration_s": round(time.time() - started, 3),
+            "result": result,
+        }
+        return result
+
+    def sync_now(self, peer):
+        """On-demand sync of one configured peer (dashboard action).
+        Raises ValueError for an unknown peer so callers can 400 it."""
+        if peer not in self.peer_hashes:
+            raise ValueError("unknown peer")
+        return self._sync_and_record(peer)
+
+    def state(self):
+        """Serializable per-peer sync view for the operator dashboard."""
+        now = time.time()
+        out = []
+        for p in self.peer_hashes:
+            interval = self.interval_for(p)
+            due = self._next_due.get(p, now)
+            out.append({
+                "peer": p,
+                "interval_s": interval,
+                "backoff": interval > SYNC_INTERVAL,
+                "next_due_at": due,
+                "due_in_s": max(0, int(due - now)),
+                "last_ok_at": self._last_ok.get(p),
+                "last": self._last_sync.get(p),
+            })
+        return out
 
     # -- backoff math -------------------------------------------------------
 

@@ -156,12 +156,46 @@ def load_sync_handler():
         return None
 
 
+class Metrics:
+    """Thread-safe request counters for the operator dashboard: per-op
+    counts since start plus a short ring of recent requests (op + the name
+    or hash asked about). Loopback-only visibility; nothing leaves the box."""
+
+    def __init__(self, recent=50):
+        self._lock = threading.Lock()
+        self.started = time.time()
+        self.ops = collections.Counter()
+        self.recent = collections.deque(maxlen=int(recent))
+
+    def note(self, op, payload=None):
+        q = None
+        if isinstance(payload, dict):
+            for key in ("q", "name", "target"):
+                v = payload.get(key)
+                if isinstance(v, str) and v:
+                    q = v[:64]
+                    break
+        with self._lock:
+            self.ops[str(op)] += 1
+            self.recent.appendleft({"ts": time.time(), "op": str(op), "q": q})
+
+    def snapshot(self):
+        with self._lock:
+            return {
+                "since": self.started,
+                "total": int(sum(self.ops.values())),
+                "ops": dict(self.ops),
+                "recent": list(self.recent),
+            }
+
+
 class Deps:
     """Carries everything handle_request needs: store, beacon, manifest,
     rate limiter and the peers.handle_sync callable (or None)."""
 
     def __init__(self, store=None, beacon=None, manifest=None,
-                 rate_limiter=None, sync_handler=_UNSET, sync_ctx=None):
+                 rate_limiter=None, sync_handler=_UNSET, sync_ctx=None,
+                 metrics=None):
         self.store = store
         self.beacon = beacon
         self.sync_ctx = sync_ctx or {}
@@ -171,6 +205,7 @@ class Deps:
         if sync_handler is _UNSET:
             sync_handler = load_sync_handler()
         self.sync_handler = sync_handler
+        self.metrics = metrics if metrics is not None else Metrics()
 
 
 def _records():
@@ -395,6 +430,13 @@ def _handle_request_dict(payload_bytes, link_identity, deps):
     if not isinstance(op, str):
         return _err("bad request")
 
+    metrics = getattr(deps, "metrics", None)
+    if metrics is not None:
+        try:
+            metrics.note(op, payload)
+        except Exception:
+            pass
+
     if op == "resolve":
         return op_resolve(payload, deps)
     if op == "register":
@@ -490,6 +532,174 @@ def private_owned(identity, deps):
 
 
 # ---------------------------------------------------------------------------
+# Operator (admin) surface on the private loopback API. Consumed by
+# rns_resolve.admin (the dashboard); never reachable off-box.
+# ---------------------------------------------------------------------------
+
+def _record_admin_view(rec, records_mod=None):
+    """record_public() plus the operator-only fields the dashboard shows."""
+    view = dict(record_public(rec, records_mod))
+    ts = float(rec.get("ts") or 0)
+    ttl = int(rec.get("ttl") or 0)
+    now = time.time()
+    view.update({
+        "id": rec.get("id"),
+        "ts": ts,
+        "ttl": ttl,
+        "expires_at": ts + ttl if ts else None,
+        "expired": bool(ts and ts + ttl <= now),
+        "attested": bool(rec.get("attested") or rec.get("sig") is None),
+        "pubkey_bound": bool(rec.get("pubkey")),
+        "last_used": rec.get("last_used"),
+    })
+    return view
+
+
+def admin_status(svc):
+    """GET /admin/status: everything the dashboard needs in one call."""
+    deps = getattr(svc, "deps", None)
+    store = getattr(deps, "store", None)
+    try:
+        count = store.count() if store is not None else 0
+    except Exception:
+        count = 0
+    sched = getattr(svc, "peer_scheduler", None)
+    peer_sync = []
+    peer_audit = None
+    if sched is not None:
+        try:
+            peer_sync = sched.state() if hasattr(sched, "state") else []
+        except Exception:
+            peer_sync = []
+        if hasattr(sched, "audit_state"):
+            try:
+                peer_audit = sched.audit_state()
+            except Exception:
+                peer_audit = None
+    ident = getattr(svc, "identity", None)
+    ident_hex = None
+    if ident is not None:
+        try:
+            ident_hex = bytes(ident.hash).hex()
+        except Exception:
+            ident_hex = None
+    metrics = getattr(deps, "metrics", None)
+    started = getattr(svc, "started_at", None)
+    sync_from = getattr(svc, "sync_from", None)
+    return {
+        "ok": True,
+        "dest": getattr(svc, "dest_hex", ""),
+        "identity": ident_hex,
+        "rns_ready": bool(getattr(svc, "rns_ready", False)),
+        "records": int(count),
+        "beacon_db": _beacon_available(deps) if deps is not None else False,
+        "started_at": started,
+        "uptime_s": int(time.time() - started) if started else None,
+        "last_announce_at": getattr(svc, "last_announce_at", None),
+        "announce_count": int(getattr(svc, "announce_count", 0) or 0),
+        "announce_interval_s": ANNOUNCE_INTERVAL,
+        "last_sweep_expired": int(getattr(svc, "last_sweep_expired", 0) or 0),
+        "config": {
+            "db_path": getattr(svc, "db_path", None),
+            "rns_configdir": getattr(svc, "rns_configdir", None),
+            "health_port": getattr(svc, "health_port", None),
+            "private_port": getattr(svc, "private_port", None),
+            "peers": list(getattr(svc, "peer_hashes", []) or []),
+            "peering_cost": getattr(svc, "peering_cost", None),
+            "sync_from": sorted(sync_from) if sync_from else [],
+        },
+        "peer_sync": peer_sync,
+        "peer_audit": peer_audit,
+        "metrics": metrics.snapshot() if metrics is not None else None,
+    }
+
+
+def admin_records(qs, deps):
+    """GET /admin/records?q=&limit=&offset=&expired=0|1"""
+    records = _records()
+    store = getattr(deps, "store", None)
+    lister = getattr(store, "list_records", None)
+    if not callable(lister):
+        return _err("records listing unsupported")
+    q = (qs.get("q") or [""])[0]
+    try:
+        limit = int((qs.get("limit") or ["200"])[0])
+        offset = int((qs.get("offset") or ["0"])[0])
+    except ValueError:
+        return _err("bad limit/offset")
+    include_expired = (qs.get("expired") or ["1"])[0] not in ("0", "false")
+    try:
+        recs, total = lister(q=q or None, limit=limit, offset=offset,
+                             include_expired=include_expired)
+    except Exception:
+        return _err("records listing failed")
+    return {"ok": True, "total": int(total), "offset": offset,
+            "records": [_record_admin_view(r, records) for r in recs]}
+
+
+def admin_delete(body, deps):
+    """POST /admin/records/delete {"id": ...}: operator override."""
+    rid = body.get("id") if isinstance(body, dict) else None
+    if not isinstance(rid, str) or not rid:
+        return _err("invalid id")
+    store = getattr(deps, "store", None)
+    deleter = getattr(store, "delete_id", None)
+    if not callable(deleter):
+        return _err("delete unsupported")
+    try:
+        removed = int(deleter(rid) or 0)
+    except Exception:
+        return _err("delete failed")
+    if removed == 0:
+        return _err("not found")
+    return {"ok": True, "id": rid, "removed": removed}
+
+
+def admin_sync(body, svc):
+    """POST /admin/sync {"peer"?: hex}: sync one peer now, or all."""
+    sched = getattr(svc, "peer_scheduler", None)
+    if sched is None or not hasattr(sched, "sync_now"):
+        return _err("peering disabled")
+    peer = body.get("peer") if isinstance(body, dict) else None
+    peers = [peer] if peer else list(getattr(sched, "peer_hashes", []))
+    results = {}
+    for p in peers:
+        try:
+            results[p] = sched.sync_now(p)
+        except ValueError:
+            return _err("unknown peer")
+        except Exception as e:
+            results[p] = {"ok": False, "error": str(e) or "sync failed"}
+    return {"ok": True, "results": results}
+
+
+def admin_announce(svc):
+    """POST /admin/announce: announce the resolver destination now."""
+    dest = getattr(svc, "destination", None)
+    if dest is None:
+        return _err("rns not ready")
+    try:
+        dest.announce()
+    except Exception as e:
+        return _err(str(e) or "announce failed")
+    svc.last_announce_at = time.time()
+    svc.announce_count = int(getattr(svc, "announce_count", 0) or 0) + 1
+    return {"ok": True, "announced_at": svc.last_announce_at}
+
+
+def admin_audit(svc):
+    """POST /admin/audit: run a withholding-audit round now (only when the
+    scheduler implements it; otherwise a clear error, not a crash)."""
+    sched = getattr(svc, "peer_scheduler", None)
+    if sched is None or not hasattr(sched, "audit_peers"):
+        return _err("audit unsupported")
+    try:
+        return {"ok": True, "result": sched.audit_peers()}
+    except Exception as e:
+        return _err(str(e) or "audit failed")
+
+
+# ---------------------------------------------------------------------------
 # HTTP servers (not unit tested)
 # ---------------------------------------------------------------------------
 
@@ -561,6 +771,20 @@ def _make_private_handler(svc):
                     reply = {"ok": False, "err": "internal error"}
                 self._send(200 if reply.get("ok") else 400, reply)
                 return
+            if parsed.path == "/admin/status":
+                try:
+                    reply = admin_status(svc)
+                except Exception:
+                    reply = {"ok": False, "err": "internal error"}
+                self._send(200 if reply.get("ok") else 500, reply)
+                return
+            if parsed.path == "/admin/records":
+                try:
+                    reply = admin_records(qs, svc.deps)
+                except Exception:
+                    reply = {"ok": False, "err": "internal error"}
+                self._send(200 if reply.get("ok") else 400, reply)
+                return
             if parsed.path != "/resolve":
                 self._send(404, {"ok": False, "err": "not found"})
                 return
@@ -585,6 +809,14 @@ def _make_private_handler(svc):
                     reply = private_register(body, svc.deps)
                 elif path == "/unregister":
                     reply = private_unregister(body, svc.deps)
+                elif path == "/admin/records/delete":
+                    reply = admin_delete(body, svc.deps)
+                elif path == "/admin/sync":
+                    reply = admin_sync(body, svc)
+                elif path == "/admin/announce":
+                    reply = admin_announce(svc)
+                elif path == "/admin/audit":
+                    reply = admin_audit(svc)
                 else:
                     self._send(404, {"ok": False, "err": "not found"})
                     return
@@ -632,6 +864,11 @@ class ResolveService:
         self.identity = None
         self.destination = None
         self.peer_scheduler = None
+        # Operator bookkeeping (admin_status)
+        self.started_at = time.time()
+        self.last_announce_at = None
+        self.announce_count = 0
+        self.last_sweep_expired = 0
         self._stop = threading.Event()
         self._servers = []
 
@@ -729,12 +966,15 @@ class ResolveService:
             if now - last_announce >= ANNOUNCE_INTERVAL:
                 try:
                     self.destination.announce()
+                    self.last_announce_at = time.time()
+                    self.announce_count += 1
                 except Exception:
                     pass
                 last_announce = now
             if now - last_sweep >= SWEEP_INTERVAL:
                 try:
-                    self.deps.store.expire_sweep()
+                    self.last_sweep_expired = int(
+                        self.deps.store.expire_sweep() or 0)
                 except Exception:
                     pass
                 last_sweep = now
