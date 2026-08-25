@@ -18,7 +18,8 @@ Applies when editing `tests/**/*.py`.
 
 ## Oracle style
 
-A test must assert an accept or a reject, not merely that nothing raised.
+A test must assert an accept or a reject. A test that only checks nothing
+raised is not enough.
 
 Refuse `except Exception: pass`, tests that only check a reply has an `ok` key
 without checking its value, and mocks that always succeed under a security

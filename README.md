@@ -6,8 +6,8 @@ a name.
 
 **Status: prototype.** This is a working exploration of the design space
 discussed in
-[Reticulum Discussion #965](https://github.com/markqvist/Reticulum/discussions/965),
-not a finished protocol. Wire shapes, record formats, and trust heuristics
+[Reticulum Discussion #965](https://github.com/markqvist/Reticulum/discussions/965).
+It is not a finished protocol. Wire shapes, record formats, and trust heuristics
 may all change. Do not build anything load-bearing on top of it yet.
 
 ## What it is
@@ -41,14 +41,14 @@ Four rules, all enforced in code:
    the signature and re-deriving the target itself. Records registered
    through a resolver's local NomadNet page are merely resolver-attested and
    are never replicated.
-4. **Answers are candidates, not authority.** A resolve reply is a ranked
+4. **Answers are candidates.** A resolve reply is a ranked
    list: registered records first, then names observed in network announces
    (via an optional Beacon crawl database), each with evidence such as
    expiry, announce count, recency, and reachability. The client pins its
    choice locally (trust on first use) and warns loudly if a pinned name
    ever resolves to a different hash.
 
-Names are petnames with gossip, not property.
+Names are petnames with gossip.
 
 ## Try it against a live resolver
 
@@ -77,7 +77,7 @@ python -m rns_resolve beacon
 
 The first returns a registered record whose target was derived from the
 registrant's own identity, and pins it. The second shows why answers are
-candidates rather than truth. Nothing here is special to these resolvers:
+candidates. Nothing here is special to these resolvers:
 run your own and point `RESOLVE_RESOLVER` at it instead.
 
 The same resolvers back a NomadNet node you can browse without any client

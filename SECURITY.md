@@ -13,7 +13,7 @@ and is welcome; do not run one against someone else's resolver.
 ## What counts as a vulnerability here
 
 This is naming infrastructure, so the interesting failures are about a party
-gaining authority it should not have, not only about crashes. Treat these as
+gaining authority it should not have, beyond crashes alone. Treat these as
 security issues:
 
 - **Trust boundary bypass.** Anything that lets a resolver's answer reach a
@@ -36,8 +36,7 @@ security issues:
 
 Denial of service against a single resolver is lower severity by design: the
 system expects resolvers to disagree, fail, and be replaced by another. Report
-it, but a client that cannot reach one resolver is a supported state, not a
-break.
+it, but a client that cannot reach one resolver is a supported state.
 
 ## What is out of scope
 

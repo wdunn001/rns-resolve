@@ -52,4 +52,4 @@ Applies when editing `rns_resolve/*.py` other than `admin*.py`.
    records? If it crosses a peer boundary it needs the stamp gate and payload
    caps that `sync.*` uses.
 4. Add it to the manifest if a client should discover it.
-5. Test it with fakes, including the rejection paths, not only the happy path.
+5. Test it with fakes, including the rejection paths.

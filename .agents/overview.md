@@ -104,8 +104,8 @@ is indistinguishable from an impostor. Never regenerate it to fix a problem.
    when the Beacon database is unreachable rather than failing.
 5. Announce candidates are returned with evidence and are never auto-selected
    on a client's behalf.
-6. A flagged peer is disclosure, not enforcement. Nothing is auto-banned,
-   because withholding and being partitioned look identical from inside.
+6. A flagged peer is disclosure. Nothing is auto-banned, because withholding
+   and being partitioned look identical from inside.
 7. The public health port exposes no record data. Record listings live behind
    the loopback port only.
 
@@ -115,7 +115,7 @@ is indistinguishable from an impostor. Never regenerate it to fix a problem.
   `ident.hash`, never by the return value.
 - `Transport.request_path()` takes fixed-length bytes. A name cannot be carried
   as a path request, so never encode one into it. That is a structural reason
-  the trust boundary holds, not just a policy.
+  the trust boundary holds.
 - Mesh announce names are decorative unicode (for example Mathematical
   Sans-Serif Bold). SQL `ILIKE` can never match an ASCII query against them.
   `beacon_source` pulls candidates and matches in Python on NFKC casefold.

@@ -82,7 +82,7 @@ Two honest caveats the UI states as well:
   peer that still holds it. To retire a name, delete it on every resolver
   that holds it, or let it expire; the registrant is the only party who can
   authoritatively unregister it.
-* **Flagged peers are evidence, not a verdict.** Withholding and being
+* **Flagged peers are evidence for the operator to weigh.** Withholding and being
   partitioned look identical from inside. The dashboard surfaces suspects so
   an operator can decide; nothing is auto-banned. With only two resolvers
   there is no majority, so the audit repairs gaps but cannot accuse.

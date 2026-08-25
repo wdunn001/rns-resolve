@@ -41,8 +41,8 @@ destination input:
 - Never treat a resolve answer as authoritative. It is evidence-ranked
   candidates from one resolver's point of view.
 - Never silently update a pinned name. A changed hash for a pinned name is
-  a loud event, not a background refresh.
-- Registration targets are derived, not declared. If you build a
+  a loud event.
+- Registration targets are derived. If you build a
   registration UI, send the identity and the app/aspects; the service
   computes the target with
   `RNS.Destination.hash(identity_hash_bytes, app, *aspects)`. Do not
@@ -94,9 +94,9 @@ hashes to enable LXMF-propagation-style replication:
 Peering is optional and off by default. A standalone resolver is a
 perfectly valid deployment.
 
-### Registering a node's name (the intended flow)
+### Registering a node's name
 
-Registration belongs in node setup, not in a page visit. A NomadNet node
+Registration belongs in node setup. A NomadNet node
 already holds both halves a registration needs, its identity file and its
 configured `node_name`, so claiming the name is one command in the node's
 deploy (or a small sidecar that renews the lease):
@@ -164,7 +164,7 @@ CLI action so the TOFU decision is always the user's.
 already ships the right local half of this design: its
 `CustomDestinationDisplayName` table maps a destination hash to a
 user-chosen display name. That is exactly a petname table, and it is the
-template an rns-resolve integration should extend rather than replace:
+template an rns-resolve integration should extend:
 
 - Local pins (step 2 of the adoption order) could read and write the same
   table, so names the user already assigned keep working.

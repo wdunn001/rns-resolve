@@ -59,7 +59,7 @@ helpful and quietly removes a guarantee. The two we see attempted most often:
   anywhere.
 
 Both read as reasonable improvements in isolation. Both destroy the design.
-That is why context is a requirement here and not a suggestion.
+That is why context is a requirement here.
 
 ### Give the model the context this repo already ships
 
@@ -71,7 +71,7 @@ exist so specific tools find that same tree instead of inventing their own
 rules. A model working from the diff alone does not have enough to be safe in
 this codebase.
 
-### Route work by complexity, not by habit
+### Route work by complexity
 
 Not every task deserves a frontier model, and using one for everything is both
 wasteful and slower than it looks.
@@ -89,7 +89,7 @@ wasteful and slower than it looks.
 
 The maintainer runs this as a small registry of delegates that records what
 each local resource has actually succeeded at, per capability, with a success
-rate. Routing is a lookup rather than a guess, and a delegate with no track
+rate. Routing is a lookup, and a delegate with no track
 record on a capability does not get the job. You do not need that machinery to
 contribute, but the principle holds when you decide what to hand to which
 model: match the tool to the complexity, and prefer local or open-weight models

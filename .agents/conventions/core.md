@@ -66,7 +66,7 @@ a specific shape here.
 session's context, so anything that depends on what was decided ten steps ago
 has to stay here.
 
-**Route on evidence, not on vibes.** Where a delegate registry is available,
+**Route on evidence.** Where a delegate registry is available,
 pick by what a resource has actually succeeded at for that capability, and log
 the outcome afterwards so the next decision is better informed. A resource with
 no track record on a capability does not get a job that matters. When nothing

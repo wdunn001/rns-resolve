@@ -41,9 +41,9 @@ The pattern here is dependency injection with pydantic settings:
   the error; the other resolvers still render.
 - Destructive actions require explicit confirmation in the form, and the reply
   says what actually happened, including the resolver it happened on.
-- State the honest caveats in the UI, not only in the docs. Deleting a signed
-  record is local and replication can bring it back. A flagged peer is
-  evidence, not a verdict.
+- Put the honest caveats in the UI itself, where the operator sees them.
+  Deleting a signed record is local and replication can bring it back. A
+  flagged peer is evidence for the operator to weigh.
 - Actions redirect (303) back with a message rather than rendering a result
   page, so a refresh does not repeat a write.
 - The dashboard reads and triggers. It must never become a second path into
