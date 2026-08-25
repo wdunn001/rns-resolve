@@ -140,7 +140,7 @@ class BeaconSource:
 
         Unconfigured sources are always unavailable. If nothing has
         been attempted yet, a connection attempt is made so health
-        checks report reality rather than a stale default.
+        checks report the real state. Without it they would see a stale default.
         """
         if not self._configured:
             return False

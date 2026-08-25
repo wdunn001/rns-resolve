@@ -17,7 +17,7 @@ Three layers, in the order a client should try them:
    as-is and never sent to a resolver.
 2. **Petnames.** A local, user-owned table (`~/.rns_resolve/petnames.json`)
    with trust-on-first-use pinning. A pinned name resolves with no network at
-   all, and a changed hash warns rather than silently following.
+   all, and a changed hash raises a warning. It never silently follows the new hash.
 3. **Resolver.** Only for input that never looked like a hash. The resolver
    answers with registered records first, then, optionally, announce-heard
    candidates carrying their evidence so the caller can choose.
@@ -101,7 +101,7 @@ is indistinguishable from an impostor. Never regenerate it to fix a problem.
 3. Attested records never replicate. Only signed records are offered, pushed,
    fetched, or served to a peer.
 4. Beacon access is read-only, and the service degrades to registered-only
-   when the Beacon database is unreachable rather than failing.
+   when the Beacon database is unreachable. It keeps serving and does not fail.
 5. Announce candidates are returned with evidence and are never auto-selected
    on a client's behalf.
 6. A flagged peer is disclosure. Nothing is auto-banned, because withholding

@@ -160,7 +160,7 @@ class ResolverClient:
                 {k: v for k, v in params.items() if v not in (None, "")})
         try:
             status, payload = self._fetch(method, url, body, self._timeout)
-        except Exception as exc:  # noqa: BLE001 - surfaced, not raised
+        except Exception as exc:  # noqa: BLE001 (surfaced to the caller and never raised)
             return {"ok": False, "unreachable": True,
                     "err": str(exc) or exc.__class__.__name__}
         if not isinstance(payload, dict):

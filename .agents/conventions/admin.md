@@ -44,8 +44,8 @@ The pattern here is dependency injection with pydantic settings:
 - Put the honest caveats in the UI itself, where the operator sees them.
   Deleting a signed record is local and replication can bring it back. A
   flagged peer is evidence for the operator to weigh.
-- Actions redirect (303) back with a message rather than rendering a result
-  page, so a refresh does not repeat a write.
+- Actions redirect (303) back with a message and never render the result
+  page inline, so a refresh does not repeat a write.
 - The dashboard reads and triggers. It must never become a second path into
   resolution logic: no route may register a name, alter a record's content, or
   change what `resolve` would answer.

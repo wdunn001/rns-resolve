@@ -23,7 +23,7 @@ destination input:
    `RESOLVE_RESOLVER`; NomadNet patch: env `RNS_RESOLVE_RESOLVER`), open a
    link to that resolver destination and send the `resolve` op. Note that
    looking up the path to the resolver's own destination hash is a
-   legitimate hash lookup, not a name resolution.
+   legitimate hash lookup. It is not a name resolution.
 4. **Present candidates, then TOFU.** Show the ranked candidates
    (registered records first, then announce-derived candidates) with their
    evidence. Let the user pick; pin the pick into the petname table.

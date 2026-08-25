@@ -168,7 +168,7 @@ class TestNormalizeName(unittest.TestCase):
 
     def test_fullwidth_not_folded(self):
         # NFC (not NFKC) is specified: fullwidth letters stay non-ASCII
-        # and must be rejected, not silently folded to ascii.
+        # and must be rejected. They are never silently folded to ascii.
         with self.assertRaises(ValueError):
             normalize_name("\uff41\uff42\uff43")  # fullwidth "abc"
 
@@ -395,7 +395,7 @@ class TestSignVerify(unittest.TestCase):
         self.assertFalse(records.verify_record(rec, self.identity))
 
     def test_verify_never_raises(self):
-        # Broken record shapes return False rather than raising.
+        # Broken record shapes return False and never raise.
         self.assertFalse(records.verify_record({}, self.identity))
         self.assertFalse(records.verify_record({"sig": b"x"}, self.identity))
         self.assertFalse(records.verify_record({"sig": b"x"}, None))

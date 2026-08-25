@@ -57,7 +57,7 @@ def _verify_standalone(rec):
 
 def _lxstamper():
     """LXMF's LXStamper module, or None. We import LXMF's implementation
-    rather than reimplementing it: same workblock construction, same
+    directly: same workblock construction, same
     peering-key semantics (key material = receiver_identity.hash +
     sender_identity.hash, WORKBLOCK_EXPAND_ROUNDS_PEERING), so an audit of
     LXMF's stamps is an audit of ours."""

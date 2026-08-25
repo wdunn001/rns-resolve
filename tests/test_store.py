@@ -297,7 +297,7 @@ class StoreTest(unittest.TestCase):
         val = self._last_used(rid)
         self.assertIsNotNone(val)
         self.assertGreaterEqual(val, before - 1)
-        # touching an unknown id is a no-op, not an error
+        # touching an unknown id is a no-op and raises no error
         self.store.touch_use("ff" * 16)
 
     # -- helpers -----------------------------------------------------------

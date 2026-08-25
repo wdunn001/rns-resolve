@@ -12,7 +12,7 @@ Human readable names for Reticulum, without a registrar.
 
 Reticulum addresses are 16 byte hashes. Nobody remembers them, and no
 central authority exists to hand out names instead. rns-resolve fills the
-gap the way the network itself works: names are evidence, not authority.
+gap the way the network itself works: names are evidence for the reader to weigh.
 
 >>How to use this node
 
@@ -31,7 +31,7 @@ generates, so nobody can point a name at a destination they do not
 control. Registrations expire unless renewed by use.
 
 Node operators: the intended flow is to register as part of setting your
-node up, not by visiting this page. One command in your deploy reads your
+node up. One command in your deploy reads your
 node's identity and node_name and registers a signed, replicating record:
 python -m rns_resolve.nodereg (see the repository). This page is the
 manual path for everyone else.

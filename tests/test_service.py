@@ -273,7 +273,7 @@ class TestRegister(ServiceTestBase):
         self.assertEqual(rec["app"], "nomadnetwork")
         self.assertEqual(rec["aspects"], ["node"])
         self.assertNotIn("sig", rec)
-        # target derived from the verified identity, not client-supplied
+        # target comes from the verified identity. A client-supplied target is ignored
         expected_target = self.fake_records.derive_target(
             "ab" * 16, "nomadnetwork", ["node"])
         self.assertEqual(rec["target"], expected_target)

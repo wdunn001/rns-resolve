@@ -8,8 +8,7 @@ Applies when editing `rns_resolve/*.py` other than `admin*.py`.
   handlers take `(payload, deps)` and return a plain dict, so they are testable
   with fakes and no sockets. Keep new ops in that shape.
 - `Deps` carries the store, Beacon source, manifest, rate limiter, sync handler
-  and metrics. Add a collaborator to `Deps` rather than reaching for a module
-  global.
+  and metrics. Add a collaborator to `Deps`. Do not reach for a module global.
 - `store.py` owns all SQL. No SQL anywhere else. Every method takes and returns
   plain dicts, holds `self._lock` for the statement, and never leaks a cursor.
 - `records.py` owns canonical bytes, signing, and verification. Any change to

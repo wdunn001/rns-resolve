@@ -689,7 +689,7 @@ def admin_announce(svc):
 
 def admin_audit(svc):
     """POST /admin/audit: run a withholding-audit round now (only when the
-    scheduler implements it; otherwise a clear error, not a crash)."""
+    scheduler implements it; otherwise it returns a clear error and does not crash)."""
     sched = getattr(svc, "peer_scheduler", None)
     if sched is None or not hasattr(sched, "audit_peers"):
         return _err("audit unsupported")

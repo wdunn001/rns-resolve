@@ -3,8 +3,8 @@
 This is the intended registration flow. A NomadNet node already holds both
 halves a registration needs, its identity file and its configured
 node_name, so claiming the name belongs in the node's own setup (a
-one-shot at deploy, or a small sidecar that renews the lease), not in a
-manual page visit. Because the node's private key signs the record, setup
+one-shot at deploy, or a small sidecar that renews the lease). Because the
+node's private key signs the record, setup
 registrations are self-certifying and replicate between resolvers; the
 register.mu page remains the manual fallback for visitors, whose records
 are resolver-attested and stay local.

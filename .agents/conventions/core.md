@@ -8,7 +8,7 @@
 - Minimal diffs. Match nearby style. The codebase is stdlib-first Python with
   small seams for testing; keep it that way.
 - No emojis in repo text, source, or commit messages. Decorative unicode
-  belongs to mesh announce names, not to this repository.
+  belongs to mesh announce names. Keep it out of this repository.
 - No emdashes or semicolons in comments or docs you write.
 - No backticks inside code comments. Prefer plain words or quoted identifiers.
 - No TODO or FIXME noise. Either fix it or write it down in the right doc.
@@ -26,8 +26,8 @@ declared in `pyproject.toml`:
 - `admin` adds `fastapi`, `uvicorn`, `jinja2`, `pydantic`.
 
 A module that needs an extra must import it lazily or guard the import, so a
-client install stays small and a missing extra degrades to a clear message
-rather than an ImportError at startup. `rns_resolve/admin.py` shows the shape.
+client install stays small and a missing extra degrades to a clear message.
+It does not become an ImportError at startup. `rns_resolve/admin.py` shows the shape.
 
 Do not add a dependency to make something marginally shorter. Prefer LXMF's or
 RNS's own implementation over a reimplementation when the semantics must match
@@ -38,7 +38,7 @@ theirs, which is why peering stamps use LXMF's `LXStamper` directly.
 - Handlers return `{"ok": False, "err": "..."}`; they do not raise across the
   wire. `_err` in `service.py` is the one shape.
 - Degrade, do not fail. An unreachable Beacon database means registered-only
-  answers. An unreachable peer means backoff, not a crash.
+  answers. An unreachable peer means backoff, and the service keeps running.
 - Never let an operator or diagnostic path change resolution behaviour.
 
 ## Route work by complexity
@@ -50,8 +50,8 @@ enough.
 **Delegate the mechanical work.** Summarizing a long log, skimming a document
 for one fact, classifying many short items, pulling a snippet out of a large
 file by signature, computing embeddings for a batch. The value there is
-throughput, not judgment, so it belongs on a local or open-weight model rather
-than in this context window. Named capabilities to route by:
+throughput, and none of it needs this model's judgment, so it belongs on a
+local or open-weight model outside this context window. Named capabilities to route by:
 `bulk-summarization`, `log-skim`, `doc-skim`, `yes-no-classification`,
 `code-snippet-extraction`, `embedding`, `shell-exec-bulk`.
 
@@ -70,8 +70,8 @@ has to stay here.
 pick by what a resource has actually succeeded at for that capability, and log
 the outcome afterwards so the next decision is better informed. A resource with
 no track record on a capability does not get a job that matters. When nothing
-qualifies, do it here rather than gambling: a failed delegation costs more than
-the work it avoided.
+qualifies, do it here. Gambling on an unproven delegate costs more than the
+work it would have avoided.
 
 The same rule scales down. Reading three files to answer a question is not a
 reason to spawn anything; reading three hundred is.
@@ -87,6 +87,6 @@ a checkable detail (a path, an op name, a port, a measured quantity). Do not
 invent numbers, quotes, or incidents. This applies to page copy in `pages/`,
 which users read over the mesh, as much as to the README.
 
-Public commit messages and docs describe the change, not internal editorial
-policy. A subject line like "docs: formatting cleanup" is right; naming a
-private style rule in a public log is not.
+Public commit messages and docs describe the change itself. Keep internal
+editorial policy out of them. A subject line like "docs: formatting cleanup" is
+right; naming a private style rule in a public log is wrong.

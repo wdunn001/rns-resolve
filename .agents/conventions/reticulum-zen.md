@@ -10,10 +10,10 @@ those may exist here.
 
 ## Mental model
 
-- There is no cloud center. A resolver is a peer that offers an opinion, not an
-  authority that owns a namespace.
-- Destination hashes are identity, not location. A name is a local label over a
-  hash; the hash stays the address.
+- There is no cloud center. A resolver is a peer that offers an opinion. It owns
+  no namespace and holds no authority over one.
+- Destination hashes are identity. A name is a local label over a hash, and the
+  hash stays the address.
 - Assume every resolver is hostile. A record must be verifiable without
   trusting the resolver that served it.
 - Bandwidth and airtime are scarce. Replication offers ids first and pushes
@@ -36,10 +36,10 @@ those may exist here.
 6. Do not auto-select an announce candidate for a client. Return evidence and
    let the human or the client's own policy choose.
 7. Do not require clearnet HTTP or a SaaS for resolution. The Beacon database
-   is an optional local enrichment, not a dependency.
+   is an optional local enrichment, and resolution never depends on it.
 8. Do not add a plaintext or unauthenticated replication path for convenience.
 9. Do not surveil. Query metrics are counters and a short recent-query ring for
-   the operator, not per-identity query logs.
+   the operator. Per-identity query logs are never kept.
 
 ## Hard yes
 
@@ -67,4 +67,4 @@ Ask, in order:
 3. Does it introduce a party everyone must trust?
 4. Would it still be honest if two resolvers gave different answers?
 
-If any answer is uncomfortable, the design is wrong, not the question.
+If any answer is uncomfortable, the design is wrong. Keep the question.

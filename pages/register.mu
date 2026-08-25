@@ -172,7 +172,7 @@ def main():
 
     out.append(">Register a name")
     out.append("")
-    out.append("Ownership is proved by derivation, not by a registrar. The")
+    out.append("Ownership is proved by derivation. No registrar is involved. The")
     out.append("resolver computes the target destination hash from your")
     out.append("verified identity hash plus the app and aspects you choose.")
     out.append("You can only register names for destinations your own")
